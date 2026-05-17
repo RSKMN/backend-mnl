@@ -1,0 +1,68 @@
+I'll search the service package for FastAPI routes and documentation files to verify endpoints and docs. I'll check the API module and any OpenAPI/docs wiring.
+
+Searched for text `@app.` (`**/src/**`), 20 results
+
+Read [](file:///e%3A/rskmn/%21personal/quinfosys/drug_discovery_research/work/q-ai-drug/src/q_ai_drug/service/api.py)
+
+Searched for text `def score_candidates` (`**/src/**`), 1 result
+
+Read [](file:///e%3A/rskmn/%21personal/quinfosys/drug_discovery_research/work/q-ai-drug/src/q_ai_drug/models/baseline_activity.py)
+
+Searched for text `def score_admet_candidates` (`**/src/**`), 1 result
+
+Read [](file:///e%3A/rskmn/%21personal/quinfosys/drug_discovery_research/work/q-ai-drug/src/q_ai_drug/models/admet.py)
+
+Read [](file:///e%3A/rskmn/%21personal/quinfosys/drug_discovery_research/work/q-ai-drug/src/q_ai_drug/service/models.py)
+
+Short answer: the API routes are implemented and FastAPI will expose OpenAPI docs at docs; many endpoints are file-backed so they return empty/defaults until you run the pipeline or populate outputs and models.
+
+Run these minimal commands inside WSL from the repo root to verify and explore the API and docs:
+
+- install package (editable)
+```bash
+python3 -m pip install -e .
+```
+
+- start the API (uvicorn)
+```bash
+python3 -m uvicorn q_ai_drug.service.api:app --host 127.0.0.1 --port 8000
+```
+
+- quick health check
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+- open interactive API docs (in browser)
+http://127.0.0.1:8000/docs
+
+- fetch OpenAPI JSON
+```bash
+curl http://127.0.0.1:8000/openapi.json | jq .paths
+```
+
+- list top candidates (will be empty if no outputs)
+```bash
+curl http://127.0.0.1:8000/research/top-candidates
+```
+
+- list models discovered by the service
+```bash
+curl http://127.0.0.1:8000/research/models
+```
+
+- test SMILES predictor (returns defaults or errors if models/artifacts missing)
+```bash
+curl -s -X POST http://127.0.0.1:8000/research/models/predict \
+  -H "Content-Type: application/json" \
+  -d '{"target_id":"EGFR","smiles":"CN(C)c1cc2ncnc(Nc3cccc(Br)c3)c2cn1"}' | jq .
+```
+
+Notes:
+- API docs: yes — FastAPI auto-generated Swagger UI at docs and OpenAPI at `/openapi.json`.
+- Runtime behavior: many endpoints read files under cancer_proof_v1 and models. If those artifacts do not exist yet, endpoints return empty lists, default status objects, or placeholder notes (not HTTP errors), except the predictor which may raise a 400 if SMILES cannot be parsed/scored.
+- Full functionality (GNINA, docking, QM, model scoring) requires running the research workflow to populate outputs and trained models (or placing prebuilt artifacts under models and outputs).
+
+If you want, I can:
+- run a small demo run (quick-research) instructions to populate minimal artifacts, or
+- craft a tiny set of fake artifact files so the dashboard shows populated content without running the full pipeline. Which do you prefer?

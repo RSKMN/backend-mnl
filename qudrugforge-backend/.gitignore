@@ -1,0 +1,23 @@
+# Python / FastAPI virtual environments and caches
+__pycache__/
+.venv/
+venv/
+.env
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+*.log
+.DS_Store
+
+# Scientific files/artifacts generated at runtime (keep the folders, ignore their contents)
+storage/uploads/*
+storage/artifacts/*
+storage/reports/*
+storage/temp/*
+
+# Allow gitkeep files
+!storage/uploads/.gitkeep
+!storage/artifacts/.gitkeep
+!storage/reports/.gitkeep
+!storage/temp/.gitkeep
