@@ -25,7 +25,9 @@ class FileService:
         'protein_fasta', 'protein_structure', 'alphafold_structure', 'reference_ligand',
         'compound_library', 'assay_data', 'admet_data', 'tumor_mutation', 'rna_ihc',
         'organoid_response', 'generated_report', 'docking_pose', 'gnina_pose',
-        'quantum_descriptor', 'simulation_trajectory', 'other'
+        'quantum_descriptor', 'simulation_trajectory', 'other',
+        'generated_candidates', 'filtered_candidates', 'docking_results',
+        'gnina_results', 'quantum_score', 'simulation_result', 'q_ai_drug_artifact'
     }
 
     async def check_workspace_access(self, workspace_id: str, user_id: str) -> dict:

@@ -1,0 +1,5 @@
+compound_id,canonical_smiles,vina_affinity_kcal_mol,exhaustiveness
+cand_001,c1ccccc1,-6.8,8
+cand_002,CCO,-4.2,8
+cand_003,CCCC,-5.1,8
+cand_005,CC(=O)OC1ccccc1C(=O)O,-8.4,8

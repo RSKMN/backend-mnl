@@ -1,0 +1,5 @@
+compound_id,canonical_smiles,p_activity,qed,admet_risk_score
+cand_001,c1ccccc1,7.2,0.85,0.2
+cand_002,CCO,6.5,0.64,0.1
+cand_003,CCCC,5.8,0.51,0.0
+cand_005,CC(=O)OC1ccccc1C(=O)O,7.8,0.76,0.15

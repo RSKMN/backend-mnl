@@ -54,12 +54,25 @@ async def close_mongo_connection():
         database = None
         logger.info("MongoDB connection closed.")
 
+# Globally shared fallback mock database instance for offline development runs
+_fallback_mock_database = None
+
 def get_database():
     """
     Returns active database context. Raises runtime exception if database isn't initialized.
     """
-    global database
+    global database, _fallback_mock_database
     if database is None:
+        if settings.APP_ENV == "development":
+            if _fallback_mock_database is None:
+                try:
+                    from tests.utils.mock_db import MockDatabase
+                    _fallback_mock_database = MockDatabase()
+                    logger.warning("Active MongoDB is disconnected. Using fallback high-fidelity MockDatabase for development.")
+                except ImportError:
+                    logger.warning("Could not load high-fidelity MockDatabase fallback from tests.")
+            if _fallback_mock_database is not None:
+                return _fallback_mock_database
         raise RuntimeError("Database pool not initialized. Call connect_to_mongo first.")
     return database
 

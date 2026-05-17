@@ -1,0 +1,5 @@
+rank,compound_id,canonical_smiles,final_score,why_high,why_low
+1,cand_005,CC(=O)OC1ccccc1C(=O)O,0.89,Strong activity proxy and favorable docking,No major warnings
+2,cand_001,c1ccccc1,0.82,High activity and low ADMET risk,None
+3,cand_002,CCO,0.71,Moderate all-around profile,None
+4,cand_003,CCCC,0.55,Backup candidate,Low docking affinity

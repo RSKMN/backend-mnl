@@ -1,0 +1,6 @@
+compound_id,canonical_smiles,p_activity,qed,source
+cand_001,c1ccccc1,7.2,0.85,generation
+cand_002,CCO,6.5,0.64,generation
+cand_003,CCCC,5.8,0.51,generation
+cand_004,CN=C=O,4.3,0.30,generation
+cand_005,CC(=O)OC1ccccc1C(=O)O,7.8,0.76,generation

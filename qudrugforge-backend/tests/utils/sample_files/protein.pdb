@@ -1,0 +1,11 @@
+HEADER    TRANSFERASE/TRANSFERASE INHIBITOR       18-MAY-26   xxxx
+TITLE     CRYSTAL STRUCTURE OF EGFR KINASE DOMAIN
+REMARK   2
+REMARK   2 RESOLUTION. 1.90 ANGSTROMS.
+ATOM      1  N   ALA A   1      10.000  20.000  30.000  1.00  0.00           N
+ATOM      2  CA  ALA A   1      11.000  20.000  30.000  1.00  0.00           C
+ATOM      3  C   ALA A   1      11.500  21.000  30.000  1.00  0.00           C
+ATOM      4  O   ALA A   1      11.000  22.000  30.000  1.00  0.00           O
+ATOM      5  CB  ALA A   1      11.500  19.000  29.000  1.00  0.00           C
+TER
+END

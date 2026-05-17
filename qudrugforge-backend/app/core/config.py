@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = Field(default="http://localhost:3000")
     CORS_ORIGINS: str = Field(default="http://localhost:3000,http://127.0.0.1:3000")
 
+    # Q-AI-Drug Importer Settings
+    Q_AI_DRUG_OUTPUT_ROOT: str = Field(default="../q-ai-drug/outputs")
+    Q_AI_DRUG_IMPORT_ALLOW_ABSOLUTE_PATHS: bool = Field(default=False)
+
+    # Phase 9: Experiment Dev Job Simulation Settings
+    ENABLE_DEV_JOB_SIMULATION: bool = Field(default=True)
+    JOB_SIMULATION_STEP_SECONDS: int = Field(default=1)
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse comma-separated CORS origin strings into standard list coordinates."""

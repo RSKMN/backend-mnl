@@ -1,0 +1,5 @@
+compound_id,rmsd_average,rmsd_fluctuation,pose_stable
+cand_001,1.4,0.25,True
+cand_002,3.8,0.95,False
+cand_003,2.2,0.48,True
+cand_005,1.1,0.15,True

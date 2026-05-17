@@ -1,0 +1,5 @@
+compound_id,canonical_smiles,gnina_cnn_score,gnina_cnn_affinity
+cand_001,c1ccccc1,0.68,7.1
+cand_002,CCO,0.32,4.8
+cand_003,CCCC,0.45,5.6
+cand_005,CC(=O)OC1ccccc1C(=O)O,0.92,8.9

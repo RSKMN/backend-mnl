@@ -1,0 +1,5 @@
+compound_id,canonical_smiles,quantum_kernel_score
+cand_001,c1ccccc1,0.81
+cand_002,CCO,0.48
+cand_003,CCCC,0.39
+cand_005,CC(=O)OC1ccccc1C(=O)O,0.88

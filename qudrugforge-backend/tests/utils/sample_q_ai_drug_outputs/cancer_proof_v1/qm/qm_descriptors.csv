@@ -1,0 +1,5 @@
+compound_id,homo_ev,lumo_ev,gap_ev,dipole_moment_debye
+cand_001,-6.5,-0.8,5.7,0.0
+cand_002,-7.1,0.2,7.3,1.7
+cand_003,-8.2,1.1,9.3,0.0
+cand_005,-5.9,-1.4,4.5,3.4

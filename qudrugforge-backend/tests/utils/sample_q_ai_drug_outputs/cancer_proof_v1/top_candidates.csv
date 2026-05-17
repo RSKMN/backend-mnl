@@ -1,0 +1,3 @@
+compound_id,canonical_smiles,final_score,triage_class,reasons_to_test
+cand_005,CC(=O)OC1ccccc1C(=O)O,0.89,test_now,Excellent binding pose and target similarity
+cand_001,c1ccccc1,0.82,test_now,Strong computed HOMO-LUMO profile
