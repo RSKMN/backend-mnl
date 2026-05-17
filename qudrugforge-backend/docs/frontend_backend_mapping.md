@@ -63,7 +63,11 @@ This document provides a detailed index mapping frontend interface modules/views
 | Frontend Interface View | User Interaction Context | Backend API Endpoint Signature |
 | :--- | :--- | :--- |
 | `/docking` | Initiate AutoDock Vina computations | `POST /api/v1/projects/{project_id}/docking/runs` |
+| `/docking` | List all docking runs (experiments with type=docking) | `GET /api/v1/projects/{project_id}/docking/runs` |
+| `/docking` | Get single docking run detail | `GET /api/v1/projects/{project_id}/docking/runs/{experiment_id}` |
 | `/docking` | Retrieve binding energy matrix and ranked candidates | `GET /api/v1/projects/{project_id}/docking/results` |
+| `/docking` | Resolve pose file metadata + download URL | `GET /api/v1/projects/{project_id}/docking/poses/{pose_id}` |
+| `/3d-viewer` | Stream SDF/PDB pose file by file_id | `GET /api/v1/files/{file_id}/download` |
 | `/gnina` | Initiate neural CNN structural refinement runs | `POST /api/v1/projects/{project_id}/gnina/runs` |
 | `/gnina` | Poll running logs & live execution status | `GET /api/v1/projects/{project_id}/gnina/status` |
 | `/gnina` | Download console execution trace | `GET /api/v1/projects/{project_id}/gnina/logs` |

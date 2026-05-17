@@ -116,8 +116,134 @@ uvicorn app.main:app --reload --port 8000
 ## 5. Development Roadmap Summary
 
 * [x] **Phase 0: Foundation Setup**: Provision clean repository frameworks, configuration schemas, storage models, and mapping specifications.
-* [ ] **Phase 1: Identity, Workspaces & Files**: Implement MongoDB Motor integrations, local file storage uploading services, and complete user login/registration and workspace systems.
-* [ ] **Phase 2: Project Workspace & Inputs**: Develop targets profiles management APIs, 3D coordinate boxes configurations, and chemical catalog engines.
-* [ ] **Phase 3: Compute Orchestration**: Connect `q-ai-drug` client endpoints, implement callback pipelines, and ingest results (docking energies, CNN poses).
-* [ ] **Phase 4: Advanced Descriptors & QML**: Integrate quantum density structures parsing and classical-quantum prioritization scores.
-* [ ] **Phase 5: Cloud Storage & Verification**: Hook AWS S3/Cloudflare R2 providers, scale unit and system automated tests suites, and launch production containers.
+* [x] **Phase 1–9.5**: Auth, workspaces, projects, files, targets, molecules, q-ai-drug read-only, artifact importer, experiments/job tracking.
+* [x] **Phase 10: Docking Backend APIs** _(current)_: Docking run orchestration, MongoDB result APIs, imported q-ai-drug docking support.
+* [ ] **Phase 11**: GNINA, quantum, simulation, ADMET result APIs.
+* [ ] **Phase 17**: Frontend integration — connect docking UI to real backend APIs.
+* [ ] **Phase 20**: Full q-ai-drug execution orchestration (direct docking compute via q-ai-drug HTTP).
+
+---
+
+## 6. Phase 10 — Docking APIs
+
+> **Phase 10** adds real docking backend routes so the frontend docking UI can stop depending on mock/static data.
+
+### Endpoints Added
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/projects/{project_id}/docking/runs` | Create a docking run (queued, non-blocking) |
+| `GET` | `/api/v1/projects/{project_id}/docking/runs` | List all docking runs (type=docking experiments) |
+| `GET` | `/api/v1/projects/{project_id}/docking/runs/{experiment_id}` | Get single docking run detail |
+| `GET` | `/api/v1/projects/{project_id}/docking/results` | List docking results from `docking_results` collection |
+| `GET` | `/api/v1/projects/{project_id}/docking/poses/{pose_id}` | Resolve pose file → metadata + download URL |
+
+### Example: Create Docking Run
+
+**Request:**
+```json
+POST /api/v1/projects/{project_id}/docking/runs
+{
+  "target_id": "682a1b2c3d4e5f6789abcdef",
+  "compound_selection": {
+    "mode": "all",
+    "molecule_ids": []
+  },
+  "engine": "vina",
+  "binding_site": {
+    "mode": "box",
+    "box": {
+      "center_x": 10.4,
+      "center_y": -4.2,
+      "center_z": 18.9,
+      "size_x": 20.0,
+      "size_y": 20.0,
+      "size_z": 20.0
+    }
+  },
+  "parameters": {
+    "exhaustiveness": 8,
+    "num_modes": 9,
+    "energy_range": 3
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "experiment_id": "682a1c2d3e4f5a6789abcdef",
+    "status": "queued",
+    "name": "Docking Run — EGFR (VINA)",
+    "engine": "vina",
+    "target_id": "682a1b2c3d4e5f6789abcdef",
+    "molecule_count": 300,
+    "binding_site_mode": "box"
+  },
+  "message": "Docking run queued"
+}
+```
+
+### Example: List Docking Results
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "...",
+        "experiment_id": "...",
+        "project_id": "...",
+        "compound_id": "QDF-000001",
+        "smiles": "CCO...",
+        "engine": "vina",
+        "binding_affinity_kcal_mol": -9.4,
+        "pose_rank": 1,
+        "pose_file_id": "file-uuid",
+        "pose_download_url": "/api/v1/files/file-uuid/download",
+        "status": "imported",
+        "source": "q_ai_drug",
+        "created_at": "2026-05-18T00:00:00Z"
+      }
+    ],
+    "total": 1,
+    "limit": 50,
+    "offset": 0
+  },
+  "message": "Docking results fetched"
+}
+```
+
+### Design Notes
+
+- **Non-blocking**: `POST /docking/runs` creates an experiment record with `status: queued` and returns immediately. Heavy compute does NOT run inside the HTTP request.
+- **Dev simulation** (optional): Pass `"simulate": true` to trigger background status progression `queued → running → completed` without scientific output. Clearly marked as dev-only.
+- **Binding site fallback**: If no `binding_site` is provided in the request body, the API falls back to `project_inputs.binding_site`. If neither exists, `INPUT_NOT_READY` is returned.
+- **q-ai-drug artifact import**: Docking results imported via the artifact importer (`/q-ai-drug/import-artifacts`) are stored in `docking_results` and immediately visible through `/docking/results`.
+- **Pose file resolution**: `GET /docking/poses/{pose_id}` resolves a `file_id` UUID to registered file metadata and returns a `pose_download_url` consistent with `GET /api/v1/files/{file_id}/download`.
+- **Direct q-ai-drug execution**: Full execution orchestration (calling q-ai-drug to run AutoDock Vina) is **Phase 20** work and is not implemented here.
+
+### Collections Used
+
+| Collection | Purpose |
+|---|---|
+| `experiments` | Docking run records (type=`docking`) |
+| `docking_results` | Per-molecule binding results rows |
+| `files` | Pose file metadata (SDF/PDB artifacts) |
+
+### Files Created/Changed
+
+| File | Status |
+|---|---|
+| `app/api/v1/docking.py` | Created — 5 route handlers |
+| `app/schemas/docking.py` | Created — request/response Pydantic models |
+| `app/services/docking_service.py` | Created — orchestration + validation logic |
+| `app/repositories/docking_result_repository.py` | Updated — extended query params |
+| `app/api/v1/router.py` | Updated — registered docking router |
+| `tests/test_docking.py` | Created — 18 test cases |
+| `docs/frontend_backend_mapping.md` | Updated — docking page mapping |
+
