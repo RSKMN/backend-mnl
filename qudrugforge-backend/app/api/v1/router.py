@@ -15,6 +15,9 @@ from app.api.v1.gnina import router as gnina_router
 from app.api.v1.quantum import router as quantum_router
 from app.api.v1.simulations import router as simulations_router
 from app.api.v1.admet import router as admet_router
+from app.api.v1.viewer import router as viewer_router
+from app.api.v1.chemical_space import router as chemical_space_router
+from app.api.v1.similarity import router as similarity_router
 
 api_v1_router = APIRouter()
 
@@ -35,3 +38,7 @@ api_v1_router.include_router(quantum_router)
 api_v1_router.include_router(simulations_router)
 api_v1_router.include_router(admet_router)
 api_v1_router.include_router(artifact_import_router)
+api_v1_router.include_router(viewer_router)
+api_v1_router.include_router(chemical_space_router)
+api_v1_router.include_router(similarity_router)
+

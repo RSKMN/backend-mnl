@@ -35,6 +35,9 @@ class MoleculeResponse(BaseModel):
             if field in data and data[field]:
                 data[field] = str(data[field])
                 
+        if "created_by" not in data or not data["created_by"]:
+            data["created_by"] = "system"
+                
         return cls(**data)
 
 class MoleculeImportRequest(BaseModel):
