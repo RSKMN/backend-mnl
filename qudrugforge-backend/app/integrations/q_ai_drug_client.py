@@ -12,12 +12,19 @@ Q_AI_DRUG_ENDPOINTS = {
     "qm_descriptors": "/research/qm-descriptors",
     "qml_scores": "/research/qml-scores",
     "quantum_prefilter": "/research/quantum-prefilter",
+    "quantum_kernel_scores": "/research/qml-scores",
     "pose_viewer_data": "/research/pose-viewer-data",
+    "gnina_start": "/research/gnina/start",   # Phase 11 — may not exist yet in q-ai-drug
     "gnina_status": "/research/gnina/status",
     "gnina_log": "/research/gnina/log",
     "gnina_results": "/research/gnina/results",
     "models": "/research/models",
-    "predict_with_model": "/research/models/predict"
+    "predict_with_model": "/research/models/predict",
+    "simulation_start": "/research/simulations/start",
+    "simulation_status": "/research/simulations/status",
+    "simulation_log": "/research/simulations/log",
+    "simulation_results": "/research/simulations/results",
+    "md_stability": "/research/simulations/stability"
 }
 
 class QAiDrugClientError(Exception):
@@ -99,8 +106,22 @@ class QAiDrugClient:
     async def get_quantum_prefilter(self, params: Optional[Dict[str, Any]] = None) -> Any:
         return await self._request("GET", "quantum_prefilter", params=params)
 
+    async def get_quantum_kernel_scores(self, params: Optional[Dict[str, Any]] = None) -> Any:
+        return await self._request("GET", "quantum_kernel_scores", params=params)
+
     async def get_pose_viewer_data(self, params: Optional[Dict[str, Any]] = None) -> Any:
         return await self._request("GET", "pose_viewer_data", params=params)
+
+    async def start_gnina(self, payload: Dict[str, Any]) -> Any:
+        """
+        POST /research/gnina/start
+
+        Attempt to start a GNINA run via q-ai-drug. Returns the raw response
+        if the endpoint exists. If q-ai-drug does not expose this route (current
+        status as of Phase 11), raises QAiDrugClientError with status_code=404
+        so the caller can log and fall back to artifact-import mode gracefully.
+        """
+        return await self._request("POST", "gnina_start", json_data=payload)
 
     async def get_gnina_status(self, params: Optional[Dict[str, Any]] = None) -> Any:
         return await self._request("GET", "gnina_status", params=params)
@@ -116,5 +137,20 @@ class QAiDrugClient:
 
     async def predict_with_model(self, payload: Dict[str, Any]) -> Any:
         return await self._request("POST", "predict_with_model", json_data=payload)
+
+    async def start_simulation(self, payload: Dict[str, Any]) -> Any:
+        return await self._request("POST", "simulation_start", json_data=payload)
+
+    async def get_simulation_status(self, params: Optional[Dict[str, Any]] = None) -> Any:
+        return await self._request("GET", "simulation_status", params=params)
+
+    async def get_simulation_log(self, params: Optional[Dict[str, Any]] = None) -> Any:
+        return await self._request("GET", "simulation_log", params=params)
+
+    async def get_simulation_results(self, params: Optional[Dict[str, Any]] = None) -> Any:
+        return await self._request("GET", "simulation_results", params=params)
+
+    async def get_md_stability(self, params: Optional[Dict[str, Any]] = None) -> Any:
+        return await self._request("GET", "md_stability", params=params)
 
 q_ai_drug_client = QAiDrugClient()

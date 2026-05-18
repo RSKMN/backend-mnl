@@ -11,6 +11,10 @@ from app.api.v1.q_ai_drug import router as q_ai_drug_router
 from app.api.v1.artifact_import import router as artifact_import_router
 from app.api.v1.experiments import router as experiments_router
 from app.api.v1.docking import router as docking_router
+from app.api.v1.gnina import router as gnina_router
+from app.api.v1.quantum import router as quantum_router
+from app.api.v1.simulations import router as simulations_router
+from app.api.v1.admet import router as admet_router
 
 api_v1_router = APIRouter()
 
@@ -24,9 +28,10 @@ api_v1_router.include_router(files_router)
 api_v1_router.include_router(targets_router)
 api_v1_router.include_router(molecules_router)
 api_v1_router.include_router(q_ai_drug_router)
-api_v1_router.include_router(artifact_import_router)
 api_v1_router.include_router(experiments_router)
 api_v1_router.include_router(docking_router)
-
-
-
+api_v1_router.include_router(gnina_router)
+api_v1_router.include_router(quantum_router)
+api_v1_router.include_router(simulations_router)
+api_v1_router.include_router(admet_router)
+api_v1_router.include_router(artifact_import_router)

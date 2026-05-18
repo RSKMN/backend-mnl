@@ -15,8 +15,14 @@ class SimulationResultRepository:
         await self.collection.create_index("import_id")
         await self.collection.create_index("compound_id")
         await self.collection.create_index("smiles")
+        await self.collection.create_index("source_file_id")
+        await self.collection.create_index("md_stability_score")
+        await self.collection.create_index("stability_class")
         await self.collection.create_index("status")
         await self.collection.create_index("created_at")
+        await self.collection.create_index(
+            [("project_id", pymongo.ASCENDING), ("experiment_id", pymongo.ASCENDING)]
+        )
 
     async def create_many(self, docs: List[dict]) -> int:
         if not docs:
@@ -33,11 +39,20 @@ class SimulationResultRepository:
     ) -> Tuple[List[dict], int]:
         query = {"project_id": ObjectId(project_id)}
         if experiment_id:
-            query["experiment_id"] = experiment_id
+            try:
+                query["experiment_id"] = ObjectId(experiment_id)
+            except Exception:
+                query["experiment_id"] = experiment_id
 
         total = await self.collection.count_documents(query)
         cursor = self.collection.find(query).sort("created_at", pymongo.ASCENDING).skip(skip).limit(limit)
         items = await cursor.to_list(length=limit)
         return items, total
+
+    async def get_result_by_id(self, result_id: str) -> Optional[dict]:
+        try:
+            return await self.collection.find_one({"_id": ObjectId(result_id)})
+        except Exception:
+            return None
 
 simulation_result_repository = SimulationResultRepository()

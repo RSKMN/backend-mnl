@@ -10,6 +10,7 @@ ALLOWED_TYPES = {
 
 ALLOWED_ENGINES = {
     "vina", "gnina", "q_ai_drug", "rdkit", "quantum", "qml", "md", "admet",
+    "gromacs", "openmm", "imported",
     "internal", "manual", "other"
 }
 

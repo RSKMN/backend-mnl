@@ -80,4 +80,11 @@ When a job completes, QuDrugForge will ingest and index the following outputs fr
 | `qml/quantum_kernel_scores.csv` | Deep quantum kernel metrics | `quantum_results` (updates) | `storage/artifacts/` |
 | `final_ranked_candidates.csv` | Consolidated priority lists | `molecules` (ranks) | `storage/artifacts/` |
 | `top_candidates.csv` | Elite drug candidates shortlisted for dynamic test | `molecules` | `storage/artifacts/` |
+| `models/admet_model_metrics.csv` | Endpoint-level ADMET model quality metrics | `admet_results` / docs summary | `storage/artifacts/` |
 | `report.pdf` / `report.html` | Analytical study sheets and research portfolios | `reports` & `files` | `storage/reports/` |
+
+### ADMET Fallback and Safety Notes
+
+For Phase 13 ADMET support, the backend importer treats `filtered.csv`, `final_ranked_candidates.csv`, `top_candidates.csv`, and `models/admet_model_metrics.csv` as the stable fallback set when direct compute routes are unavailable. The importer keeps the raw rows intact, derives missing overall risk and recommendation values, and only materializes ADMET records when actual ADMET signal is present.
+
+All ADMET screening outputs are computational estimates intended for prioritization and review. They are not clinical safety guarantees and should not be interpreted as a replacement for experimental validation or regulatory assessment.
