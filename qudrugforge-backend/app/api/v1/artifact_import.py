@@ -15,7 +15,9 @@ from app.repositories.gnina_result_repository import gnina_result_repository
 from app.repositories.quantum_result_repository import quantum_result_repository
 from app.repositories.simulation_result_repository import simulation_result_repository
 from app.repositories.admet_result_repository import admet_result_repository
-from app.repositories.report_repository import report_repository
+# report_repository is no longer used in this file;
+# report routes live in app/api/v1/reports.py (Phase 16A)
+
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["Q-AI-Drug Import & Results"])
 
@@ -204,48 +206,3 @@ async def list_admet_results(
         "message": "ADMET results fetched"
     }
 
-@router.get("/reports")
-async def list_reports(
-    project_id: str = Path(...),
-    experiment_id: Optional[str] = Query(None),
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-    current_user: dict = Depends(get_current_active_user)
-):
-    await check_project_and_membership(project_id, current_user)
-    items, total = await report_repository.list_reports(
-        project_id=project_id,
-        experiment_id=experiment_id,
-        skip=offset,
-        limit=limit
-    )
-    return {
-        "success": True,
-        "data": {
-            "items": [serialize_doc(item) for item in items],
-            "total": total,
-            "limit": limit,
-            "offset": offset
-        },
-        "message": "Reports fetched"
-    }
-
-@router.get("/reports/{report_id}")
-async def get_report(
-    project_id: str = Path(...),
-    report_id: str = Path(...),
-    current_user: dict = Depends(get_current_active_user)
-):
-    await check_project_and_membership(project_id, current_user)
-    report = await report_repository.get_by_report_id(report_id)
-    if not report:
-        raise AppException(
-            status_code=404,
-            code="REPORT_NOT_FOUND",
-            message="Report not found"
-        )
-    return {
-        "success": True,
-        "data": serialize_doc(report),
-        "message": "Report fetched successfully"
-    }

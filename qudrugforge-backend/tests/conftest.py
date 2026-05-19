@@ -15,6 +15,7 @@ os.environ["LOCAL_STORAGE_ROOT"] = "./storage_test"
 os.environ["JWT_SECRET_KEY"] = "test-secret-key"
 os.environ["Q_AI_DRUG_ENABLED"] = "false"
 os.environ["Q_AI_DRUG_OUTPUT_ROOT"] = os.path.join(os.path.dirname(os.path.abspath(__file__)), "utils", "sample_q_ai_drug_outputs")
+os.environ["Q_AI_DRUG_IMPORT_ALLOW_ABSOLUTE_PATHS"] = "true"
 os.environ["ENABLE_DEV_JOB_SIMULATION"] = "true"
 os.environ["JOB_SIMULATION_STEP_SECONDS"] = "0"
 

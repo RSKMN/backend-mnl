@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     ENABLE_DEV_JOB_SIMULATION: bool = Field(default=True)
     JOB_SIMULATION_STEP_SECONDS: int = Field(default=1)
 
+    # Phase 20.2: Q-AI-Drug Execution Mode (http, command, hybrid)
+    Q_AI_DRUG_EXECUTION_MODE: str = Field(default="hybrid")
+
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse comma-separated CORS origin strings into standard list coordinates."""
