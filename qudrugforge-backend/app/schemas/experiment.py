@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from app.core.responses import ProvenanceMetadata
 
 ALLOWED_TYPES = {
     "target_ranking", "molecule_generation", "molecule_filtering", "docking",
@@ -15,7 +16,7 @@ ALLOWED_ENGINES = {
 }
 
 ALLOWED_STATUSES = {
-    "queued", "running", "completed", "failed", "cancelled", "imported"
+    "queued", "running", "completed", "failed", "cancelled", "imported", "partial", "importing_results"
 }
 
 ALLOWED_LOG_LEVELS = {
@@ -106,13 +107,53 @@ class ExperimentUpdate(BaseModel):
         return v
 
 class ExperimentResponse(BaseModel):
+    schema_version: str = Field(default="1.0")
     id: str
+    experiment_id: str
     project_id: str
     workspace_id: str
     name: str
     type: str
     engine: str
+    source: str = Field(default="backend-mnl")
+    pipeline_stage: str = Field(default="queued")
     status: str
+    provenance: Optional[ProvenanceMetadata] = None
+
+    # ── Phase D: Stage Orchestration Lineage ──────────────────────────────────
+    stage_job_id: Optional[str] = Field(
+        default=None,
+        description="Unique UUID for this specific stage execution attempt"
+    )
+    parent_stage_job_id: Optional[str] = Field(
+        default=None,
+        description="Direct upstream stage_job_id in the DAG"
+    )
+    dependency_stage_ids: List[str] = Field(
+        default_factory=list,
+        description="All upstream stage_job_ids required for this stage"
+    )
+    retry_parent_stage_id: Optional[str] = Field(
+        default=None,
+        description="stage_job_id of the previous failed attempt if this is a retry"
+    )
+    imported_from_stage_id: Optional[str] = Field(
+        default=None,
+        description="UUID of external artifact if stage was manually imported"
+    )
+    retry_count: int = Field(default=0)
+
+    # ── Phase D: Staleness / Invalidation ─────────────────────────────────────
+    stale: bool = Field(default=False)
+    invalidated_by_stage: Optional[str] = Field(default=None)
+    invalidated_at: Optional[datetime] = Field(default=None)
+
+    # ── Phase D: Stage-level timing ───────────────────────────────────────────
+    dependency_failure: bool = Field(default=False)
+    partial_failure: bool = Field(default=False)
+    stage_started_at: Optional[datetime] = None
+    stage_completed_at: Optional[datetime] = None
+
     progress: int
     parameters: Dict[str, Any] = Field(default_factory=dict)
     input_file_ids: List[str] = Field(default_factory=list)
@@ -134,6 +175,7 @@ class ExperimentResponse(BaseModel):
             return None
         data = dict(doc)
         data["id"] = str(data["_id"])
+        data["experiment_id"] = str(data["_id"])
         
         # Serialize ObjectIds to string
         for field in ["project_id", "workspace_id", "created_by"]:

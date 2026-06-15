@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from app.schemas.base_result import BaseScientificResult
 
 
 # ─── GNINA Parameters ────────────────────────────────────────────────────────
@@ -91,9 +92,8 @@ class GninaLogItem(BaseModel):
 
 # ─── GNINA Result Item ────────────────────────────────────────────────────────
 
-class GninaResultItem(BaseModel):
+class GninaResultItem(BaseScientificResult):
     id: str
-    experiment_id: str
     source_docking_experiment_id: Optional[str] = None
     project_id: str
     workspace_id: str
@@ -117,12 +117,10 @@ class GninaResultItem(BaseModel):
     pose_file_id: Optional[str] = None
     pose_download_url: Optional[str] = None
 
-    source: Optional[str] = None
     status: Optional[str] = None
     import_batch_id: Optional[str] = None
     raw: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     @classmethod

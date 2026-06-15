@@ -21,8 +21,10 @@ async def test_artifact_import_and_results_query(async_client, auth_headers, pro
     assert "import_id" in summary
     assert "imported_files" in summary
     assert len(summary["imported_files"]) >= 5
+    print("Parsed Collections:", summary["parsed_collections"])
     assert summary["parsed_collections"]["docking_results"] >= 2
     assert summary["parsed_collections"]["gnina_results"] >= 2
+    assert "claims" in summary["parsed_collections"]
 
     # 2. Query docking results
     res_docking = await async_client.get(
@@ -109,3 +111,18 @@ async def test_artifact_import_and_results_query(async_client, auth_headers, pro
     )
     assert res_reports.status_code == 200
     assert res_reports.json()["data"]["total"] >= 1
+
+    # 8. Query claim matrix
+    res_claims = await async_client.get(
+        f"/api/v1/projects/{project_id}/claim-matrix",
+        headers=auth_headers
+    )
+    assert res_claims.status_code == 200
+    assert res_claims.json()["data"]["total"] >= 1
+
+    res_claims_summary = await async_client.get(
+        f"/api/v1/projects/{project_id}/claim-matrix/summary",
+        headers=auth_headers
+    )
+    assert res_claims_summary.status_code == 200
+    assert res_claims_summary.json()["data"]["total_claims"] >= 1

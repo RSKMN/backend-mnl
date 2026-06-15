@@ -1,0 +1,36 @@
+MODEL        1
+HETATM    1  C   LIG A   1       1.071   0.251  -0.207  1.00  0.00           C  
+HETATM    2  C   LIG A   1      -0.452  -0.624   0.130  1.00  0.00           C  
+HETATM    3  O   LIG A   1      -1.595   0.443   0.216  1.00  0.00           O  
+HETATM    4  H   LIG A   1       1.020   0.647  -1.404  1.00  0.00           H  
+HETATM    5  H   LIG A   1       1.138   1.221   0.597  1.00  0.00           H  
+HETATM    6  H   LIG A   1       2.017  -0.562  -0.031  1.00  0.00           H  
+HETATM    7  H   LIG A   1      -0.662  -1.411  -0.816  1.00  0.00           H  
+HETATM    8  H   LIG A   1      -0.323  -1.213   1.228  1.00  0.00           H  
+HETATM    9  H   LIG A   1      -2.215   1.248   0.288  1.00  0.00           H  
+TER      10      LIG A   1
+ENDMDL
+MODEL        2
+HETATM    1  C   LIG A   1       1.070   0.250  -0.206  1.00  0.00           C  
+HETATM    2  C   LIG A   1      -0.453  -0.625   0.131  1.00  0.00           C  
+HETATM    3  O   LIG A   1      -1.596   0.443   0.216  1.00  0.00           O  
+HETATM    4  H   LIG A   1       1.013   0.645  -1.400  1.00  0.00           H  
+HETATM    5  H   LIG A   1       1.139   1.214   0.604  1.00  0.00           H  
+HETATM    6  H   LIG A   1       2.018  -0.560  -0.030  1.00  0.00           H  
+HETATM    7  H   LIG A   1      -0.665  -1.405  -0.815  1.00  0.00           H  
+HETATM    8  H   LIG A   1      -0.330  -1.208   1.225  1.00  0.00           H  
+HETATM    9  H   LIG A   1      -2.217   1.245   0.290  1.00  0.00           H  
+TER      10      LIG A   1
+ENDMDL
+MODEL        3
+HETATM    1  C   LIG A   1       1.067   0.250  -0.203  1.00  0.00           C  
+HETATM    2  C   LIG A   1      -0.458  -0.625   0.131  1.00  0.00           C  
+HETATM    3  O   LIG A   1      -1.598   0.441   0.215  1.00  0.00           O  
+HETATM    4  H   LIG A   1       0.994   0.643  -1.395  1.00  0.00           H  
+HETATM    5  H   LIG A   1       1.145   1.204   0.617  1.00  0.00           H  
+HETATM    6  H   LIG A   1       2.019  -0.552  -0.033  1.00  0.00           H  
+HETATM    7  H   LIG A   1      -0.664  -1.387  -0.820  1.00  0.00           H  
+HETATM    8  H   LIG A   1      -0.340  -1.198   1.224  1.00  0.00           H  
+HETATM    9  H   LIG A   1      -2.230   1.243   0.299  1.00  0.00           H  
+TER      10      LIG A   1
+ENDMDL

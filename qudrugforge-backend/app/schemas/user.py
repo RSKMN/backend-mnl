@@ -6,6 +6,7 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str
     status: str = "active"
+    system_role: str = "VIEWER"
 
 class UserCreate(UserBase):
     password: str
@@ -29,5 +30,6 @@ class UserResponse(UserBase):
             id=str(data["_id"]),
             email=data["email"],
             full_name=data["full_name"],
-            status=data.get("status", "active")
+            status=data.get("status", "active"),
+            system_role=data.get("system_role", "VIEWER")
         )

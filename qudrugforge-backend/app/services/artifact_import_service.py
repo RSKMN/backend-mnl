@@ -27,29 +27,54 @@ from app.repositories.simulation_result_repository import simulation_result_repo
 from app.repositories.admet_result_repository import admet_result_repository
 from app.repositories.report_repository import report_repository
 from app.repositories.experiment_repository import experiment_repository
+from app.repositories.claim_matrix_repository import claim_matrix_repository
 
 logger = logging.getLogger("qudrugforge-artifact-import-service")
 
-def copy_and_hash_file(src_path: Path, dest_path: Path) -> dict:
+async def copy_and_hash_file(src_path: Path, dest_path: Path) -> dict:
     """
     Copies a file to a new location, creating parent folders,
     and returns its size and SHA256 checksum.
+    If storage provider is GCS, it uploads the file to GCS.
     """
-    dest_path.parent.mkdir(parents=True, exist_ok=True)
+    from app.storage.service import storage_service
+    import io
+    
+    provider = storage_service.get_provider()
     
     sha256 = hashlib.sha256()
     size_bytes = 0
     
     with open(src_path, "rb") as fsrc:
-        with open(dest_path, "wb") as fdest:
-            while chunk := fsrc.read(1024 * 64):
-                size_bytes += len(chunk)
-                fdest.write(chunk)
-                sha256.update(chunk)
+        while chunk := fsrc.read(1024 * 64):
+            size_bytes += len(chunk)
+            sha256.update(chunk)
+    
+    checksum = sha256.hexdigest()
+    
+    # Use standard Storage Provider to store artifact
+    dest_str = str(dest_path).replace("\\", "/").split("storage/")[-1] if "storage/" in str(dest_path) else str(dest_path)
+    
+    # We must mock UploadFile to use provider.save_file
+    with open(src_path, "rb") as fsrc:
+        class MockUploadFile:
+            def __init__(self, file_obj, content_type="application/octet-stream"):
+                self.file = file_obj
+                self.content_type = content_type
+            
+            async def seek(self, offset: int):
+                self.file.seek(offset)
                 
+            async def read(self, size: int = -1):
+                return self.file.read(size)
+                
+        mock_file = MockUploadFile(fsrc)
+        save_result = await provider.save_file(mock_file, dest_str)
+        
     return {
-        "size_bytes": size_bytes,
-        "checksum": sha256.hexdigest(),
+        "size_bytes": save_result["size_bytes"],
+        "checksum": save_result["checksum"],
+        "local_path": save_result["local_path"]
     }
 
 def get_flexible_value(row: dict, keys: list, default=None):
@@ -65,6 +90,16 @@ def get_flexible_value(row: dict, keys: list, default=None):
         if k.lower() in row_lower:
             return row_lower[k.lower()]
     return default
+
+
+def get_existing_path(run_dir: Path, rel_path: str) -> Path:
+    p = run_dir / rel_path
+    if p.exists():
+        return p
+    fallback = run_dir / Path(rel_path).name
+    if fallback.exists():
+        return fallback
+    return p
 
 
 ADMET_ID_KEYS = ["molecule_id", "compound_id", "ligand_id", "smiles"]
@@ -112,7 +147,7 @@ def _row_has_admet_signal(row: dict) -> bool:
 
 def _extract_admet_identity(row: dict) -> dict:
     molecule_id = get_flexible_value(row, ["molecule_id"])
-    compound_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "name"])
+    compound_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "name", "candidate_id"])
     ligand_id = get_flexible_value(row, ["ligand_id"])
     smiles = get_flexible_value(row, ["smiles", "SMILES", "canonical_smiles"])
     return {
@@ -362,13 +397,17 @@ class ArtifactImportService:
             "quantum_results": 0,
             "simulation_results": 0,
             "admet_results": 0,
-            "reports": 0
+            "reports": 0,
+            "claims": 0
         }
+        total_storage_bytes = 0
 
         # Define file mapping specs
         # structure: relative_path_in_run_dir -> (file_type, source_module, artifact_type, mime_type, optional_flag)
         file_specs = {
             "generated.csv": ("generated_candidates", "molecules", "csv", "text/csv", True),
+            "generated_ranked.csv": ("generated_candidates", "molecules", "csv", "text/csv", True),
+            "generated_raw.csv": ("generated_candidates", "molecules", "csv", "text/csv", True),
             "filtered.csv": ("filtered_candidates", "molecules", "csv", "text/csv", True),
             "models/admet_model_metrics.csv": ("admet_model_metrics", "admet", "csv", "text/csv", True),
             "assets/ligand_asset_manifest.csv": ("q_ai_drug_artifact", "q_ai_drug", "csv", "text/csv", True),
@@ -380,12 +419,16 @@ class ArtifactImportService:
             "qml/quantum_kernel_scores.csv": ("quantum_score", "quantum", "csv", "text/csv", True),
             "final_ranked_candidates.csv": ("q_ai_drug_artifact", "molecules", "csv", "text/csv", True),
             "top_candidates.csv": ("q_ai_drug_artifact", "molecules", "csv", "text/csv", True),
+            "scientific_claim_matrix.csv": ("claim_matrix", "claims", "csv", "text/csv", True),
+            "admet_scored.csv": ("admet_data", "admet", "csv", "text/csv", True),
+            "admet/results.csv": ("admet_data", "admet", "csv", "text/csv", True),
+            "admet/admet_results.csv": ("admet_data", "admet", "csv", "text/csv", True),
             "report.pdf": ("generated_report", "reports", "pdf", "application/pdf", True),
             "report.html": ("generated_report", "reports", "html", "text/html", True)
         }
 
         # Legacy ADMET search paths are still accepted if present.
-        admet_paths = ["admet/results.csv", "admet/admet_results.csv"]
+        admet_paths = ["admet_scored.csv", "admet/results.csv", "admet/admet_results.csv"]
         admet_found_path = None
         for p in admet_paths:
             if (run_dir / p).exists():
@@ -402,14 +445,18 @@ class ArtifactImportService:
             file_type, source_module, artifact_type, mime, is_optional = spec
 
             if not src_file.exists():
-                if not is_optional:
-                    raise AppException(
-                        status_code=400,
-                        code="ARTIFACT_FILE_COPY_FAILED",
-                        message=f"Required file '{rel_path}' is missing from run directory."
-                    )
-                missing_files.append(rel_path)
-                continue
+                fallback_file = run_dir / Path(rel_path).name
+                if fallback_file.exists():
+                    src_file = fallback_file
+                else:
+                    if not is_optional:
+                        raise AppException(
+                            status_code=400,
+                            code="ARTIFACT_FILE_COPY_FAILED",
+                            message=f"Required file '{rel_path}' is missing from run directory."
+                        )
+                    missing_files.append(rel_path)
+                    continue
 
             found_files.append(rel_path)
 
@@ -428,7 +475,9 @@ class ArtifactImportService:
 
             try:
                 # Copy and compute hash
-                file_info = copy_and_hash_file(src_file, dest_file)
+                file_info = await copy_and_hash_file(src_file, dest_file)
+                local_rel_path = file_info["local_path"] # Override with provider returned path
+                total_storage_bytes += file_info["size_bytes"]
             except Exception as e:
                 logger.error(f"Copy failed for file '{src_file}' to '{dest_file}': {str(e)}")
                 raise AppException(
@@ -495,7 +544,9 @@ class ArtifactImportService:
                     dest_pose = storage_root / local_rel_path
 
                     try:
-                        file_info = copy_and_hash_file(src_pose, dest_pose)
+                        file_info = await copy_and_hash_file(src_pose, dest_pose)
+                        local_rel_path = file_info["local_path"]
+                        total_storage_bytes += file_info["size_bytes"]
                         
                         file_uuid = str(uuid.uuid4())
                         ext = src_pose.suffix.lstrip(".").lower()
@@ -569,6 +620,8 @@ class ArtifactImportService:
         # 6. Parse and Import Candidates into Molecules Collection
         mol_sources = [
             ("generated.csv", "generated"),
+            ("generated_ranked.csv", "generated"),
+            ("generated_raw.csv", "generated"),
             ("filtered.csv", "filtered"),
             ("final_ranked_candidates.csv", "selected"),
             ("top_candidates.csv", "selected")
@@ -656,7 +709,7 @@ class ArtifactImportService:
                 continue
 
             file_uuid = registered_file_map[rel_path]
-            rows = parse_csv_to_dicts(run_dir / rel_path)
+            rows = parse_csv_to_dicts(get_existing_path(run_dir, rel_path))
             
             molecules_to_insert = []
 
@@ -748,8 +801,8 @@ class ArtifactImportService:
                     if m_id and m_cid:
                         compound_id_to_id[m_cid] = m_id
 
-            if rel_path in {"filtered.csv", "final_ranked_candidates.csv", "top_candidates.csv"}:
-                if rel_path == "filtered.csv":
+            if rel_path in {"filtered.csv", "final_ranked_candidates.csv", "top_candidates.csv", "admet_scored.csv", "admet/results.csv", "admet/admet_results.csv"}:
+                if rel_path in {"filtered.csv", "admet_scored.csv", "admet/results.csv", "admet/admet_results.csv"}:
                     admet_source_id = registered_file_map[rel_path]
                     for row in rows:
                         merge_admet_record(row, source_file_id=admet_source_id, source_rel_path=rel_path)
@@ -769,13 +822,16 @@ class ArtifactImportService:
         docking_csv = "docking/results.csv"
         if docking_csv in registered_file_map:
             file_uuid = registered_file_map[docking_csv]
-            rows = parse_csv_to_dicts(run_dir / docking_csv)
+            parse_target = run_dir / docking_csv
+            if not parse_target.exists():
+                parse_target = run_dir / "results.csv"
+            rows = parse_csv_to_dicts(parse_target)
             docking_docs = []
 
             for idx, row in enumerate(rows):
-                comp_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "molecule_id", "name"])
+                comp_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "molecule_id", "name", "candidate_id"])
                 smiles = get_flexible_value(row, ["smiles", "SMILES", "canonical_smiles"])
-                score = parse_numeric(get_flexible_value(row, ["score", "docking_score", "binding_energy", "affinity"]))
+                score = parse_numeric(get_flexible_value(row, ["score", "docking_score", "binding_energy", "affinity", "affinity_kcal_mol"]))
                 rank = parse_numeric(get_flexible_value(row, ["rank"])) or (idx + 1)
 
                 if not comp_id and not smiles:
@@ -831,11 +887,11 @@ class ArtifactImportService:
         gnina_csv = "gnina/results.csv"
         if gnina_csv in registered_file_map:
             file_uuid = registered_file_map[gnina_csv]
-            rows = parse_csv_to_dicts(run_dir / gnina_csv)
+            rows = parse_csv_to_dicts(get_existing_path(run_dir, gnina_csv))
             gnina_docs = []
 
             for idx, row in enumerate(rows):
-                comp_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "molecule_id", "name"])
+                comp_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "molecule_id", "name", "candidate_id"])
                 smiles = get_flexible_value(row, ["smiles", "SMILES", "canonical_smiles"])
                 cnn_score = parse_numeric(get_flexible_value(row, [
                     "cnn_score", "cnnscore", "cnn_pose_score", "gnina_cnn_score"
@@ -1000,7 +1056,7 @@ class ArtifactImportService:
 
         if qm_desc_csv in registered_file_map:
             file_uuid = registered_file_map[qm_desc_csv]
-            rows = parse_csv_to_dicts(run_dir / qm_desc_csv)
+            rows = parse_csv_to_dicts(get_existing_path(run_dir, qm_desc_csv))
             for row in rows:
                 ids = extract_quantum_ids(row)
                 if not any(ids.values()):
@@ -1029,7 +1085,7 @@ class ArtifactImportService:
 
         if q_pref_csv in registered_file_map:
             file_uuid = registered_file_map[q_pref_csv]
-            rows = parse_csv_to_dicts(run_dir / q_pref_csv)
+            rows = parse_csv_to_dicts(get_existing_path(run_dir, q_pref_csv))
             for idx, row in enumerate(rows):
                 ids = extract_quantum_ids(row)
                 score = parse_numeric(get_flexible_value(row, [
@@ -1061,7 +1117,7 @@ class ArtifactImportService:
 
         if q_kern_csv in registered_file_map:
             file_uuid = registered_file_map[q_kern_csv]
-            rows = parse_csv_to_dicts(run_dir / q_kern_csv)
+            rows = parse_csv_to_dicts(get_existing_path(run_dir, q_kern_csv))
             for idx, row in enumerate(rows):
                 ids = extract_quantum_ids(row)
                 kernel_score = parse_numeric(get_flexible_value(row, [
@@ -1160,6 +1216,7 @@ class ArtifactImportService:
                     
                     try:
                         file_info = copy_and_hash_file(src_file, dest_file)
+                        total_storage_bytes += file_info["size_bytes"]
                         file_uuid = str(uuid.uuid4())
                         
                         # Infer file_type and mime_type
@@ -1223,27 +1280,26 @@ class ArtifactImportService:
         stability_file_uuid = None
         
         if "md/stability.csv" in registered_file_map:
-            stability_csv_path = run_dir / "md/stability.csv"
+            stability_csv_path = get_existing_path(run_dir, "md/stability.csv")
             stability_file_uuid = registered_file_map["md/stability.csv"]
         else:
-            if md_dir.exists() and md_dir.is_dir():
-                for root, dirs, files in os.walk(md_dir):
-                    for f in files:
-                        if f.endswith(".csv"):
-                            candidate_path = Path(root) / f
-                            try:
-                                rows_tmp = parse_csv_to_dicts(candidate_path)
-                                if rows_tmp:
-                                    headers = {str(k).lower() for k in rows_tmp[0].keys()}
-                                    if any(k.lower() in headers for k in MD_ALL_SIGNAL_KEYS):
-                                        stability_csv_path = candidate_path
-                                        rel_str = str(candidate_path.relative_to(run_dir)).replace("\\", "/")
-                                        stability_file_uuid = md_file_map.get(rel_str) or md_file_map.get(f)
-                                        break
-                            except Exception:
-                                pass
-                    if stability_csv_path:
-                        break
+            for root, dirs, files in os.walk(run_dir):
+                for f in files:
+                    if f.endswith(".csv"):
+                        candidate_path = Path(root) / f
+                        try:
+                            rows_tmp = parse_csv_to_dicts(candidate_path)
+                            if rows_tmp:
+                                headers = {str(k).lower() for k in rows_tmp[0].keys()}
+                                if any(k.lower() in headers for k in MD_ALL_SIGNAL_KEYS):
+                                    stability_csv_path = candidate_path
+                                    rel_str = str(candidate_path.relative_to(run_dir)).replace("\\", "/")
+                                    stability_file_uuid = md_file_map.get(rel_str) or md_file_map.get(f)
+                                    break
+                        except Exception:
+                            pass
+                if stability_csv_path:
+                    break
 
         if stability_csv_path:
             rows = parse_csv_to_dicts(stability_csv_path)
@@ -1264,7 +1320,7 @@ class ArtifactImportService:
                     
                     for idx, row in enumerate(rows):
                         molecule_id = get_flexible_value(row, ["molecule_id"])
-                        comp_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "molecule_id", "name"])
+                        comp_id = get_flexible_value(row, ["compound_id", "id", "ligand_id", "molecule_id", "name", "candidate_id"])
                         ligand_id = get_flexible_value(row, ["ligand_id"])
                         smiles = get_flexible_value(row, ["smiles", "SMILES", "canonical_smiles"])
                         target_id = get_flexible_value(row, ["target_id"])
@@ -1446,6 +1502,36 @@ class ArtifactImportService:
             await report_repository.create_report(report_doc)
             parsed_counts["reports"] += 1
 
+        # 13. Register Claim Matrix
+        claim_matrix_csv = "scientific_claim_matrix.csv"
+        if claim_matrix_csv in registered_file_map:
+            file_uuid = registered_file_map[claim_matrix_csv]
+            rows = parse_csv_to_dicts(run_dir / claim_matrix_csv)
+            claim_docs = []
+            
+            for idx, row in enumerate(rows):
+                claim_doc = {
+                    "project_id": ObjectId(project_id),
+                    "workspace_id": ObjectId(workspace_id),
+                    "experiment_id": ObjectId(experiment_or_import_id),
+                    "import_id": import_id,
+                    "evidence_level": get_flexible_value(row, ["evidence_level", "evidence level", "level"]),
+                    "name": get_flexible_value(row, ["name", "claim_name"]),
+                    "definition": get_flexible_value(row, ["definition"]),
+                    "current_status": get_flexible_value(row, ["current_status", "status"]),
+                    "allowed_claim": get_flexible_value(row, ["allowed_claim", "allowed"]),
+                    "forbidden_claim": get_flexible_value(row, ["forbidden_claim", "forbidden"]),
+                    "required_next_evidence": get_flexible_value(row, ["required_next_evidence", "required_evidence"]),
+                    "created_at": now,
+                    "updated_at": now
+                }
+                claim_docs.append(claim_doc)
+            
+            if claim_docs:
+                await claim_matrix_repository.ensure_indexes()
+                inserted = await claim_matrix_repository.create_many(claim_docs)
+                parsed_counts["claims"] += inserted
+
         # Duplicate logging/summary
         if duplicate_skip_count > 0:
             warnings.append(f"Skipped {duplicate_skip_count} redundant candidate SMILES already registered in project.")
@@ -1460,7 +1546,8 @@ class ArtifactImportService:
             f"quantum ({parsed_counts['quantum_results']}), "
             f"simulation ({parsed_counts['simulation_results']}), "
             f"ADMET ({parsed_counts['admet_results']}), "
-            f"reports ({parsed_counts['reports']})"
+            f"reports ({parsed_counts['reports']}), "
+            f"claims ({parsed_counts['claims']})"
         )
         await experiment_repository.append_log(experiment_or_import_id, {
             "timestamp": utc_now(),
@@ -1498,6 +1585,19 @@ class ArtifactImportService:
             "stage": "q_ai_drug_import",
             "metadata": {}
         })
+
+        if total_storage_bytes > 0:
+            import asyncio
+            from app.services.usage_service import usage_service
+            asyncio.create_task(
+                usage_service.record_storage(
+                    project_id=project_id,
+                    workspace_id=workspace_id,
+                    user_id=user_id,
+                    storage_bytes=total_storage_bytes,
+                    metadata={"import_id": import_id, "run_name": actual_run_name}
+                )
+            )
 
         return {
             "import_id": import_id,

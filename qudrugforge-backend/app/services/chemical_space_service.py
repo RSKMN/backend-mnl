@@ -2,6 +2,11 @@ import logging
 import hashlib
 from typing import Optional, List, Dict, Any, Tuple
 from bson import ObjectId
+import json
+import subprocess
+import tempfile
+import os
+from pathlib import Path
 
 from app.core.exceptions import AppException
 from app.utils.datetime import utc_now
@@ -144,19 +149,80 @@ class ChemicalSpaceService:
         points = []
         now = utc_now()
 
-        # RDKit/UMAP is not yet connected/required for advanced Phase 15 computations
-        # Keep deterministic_placeholder as primary or default fallback
-        resolved_method = "deterministic_placeholder"
-        if method in ("pca", "umap"):
-            logger.info(f"Advanced UMAP/PCA chemical space computation requested but not enabled. Falling back to deterministic.")
-            resolved_method = "deterministic_placeholder"
+        resolved_method = "umap_rdkit_morgan"
+        
+        # Prepare input data for the subprocess
+        input_data = []
+        for mol in molecules:
+            mol_id = str(mol["_id"])
+            smiles = mol.get("smiles")
+            if smiles:
+                input_data.append({"molecule_id": mol_id, "smiles": smiles})
+                
+        # Run subprocess
+        computed_coords = {}
+        if input_data:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                input_file = Path(tmpdir) / "input.json"
+                output_file = Path(tmpdir) / "output.json"
+                
+                input_file.write_text(json.dumps(input_data), encoding="utf-8")
+                
+                q_ai_drug_dir = Path(__file__).parent.parent.parent.parent.parent / "q-ai-drug-new"
+                if not q_ai_drug_dir.exists():
+                    q_ai_drug_dir = Path("../../q-ai-drug-new").resolve()
+                    
+                script_path = q_ai_drug_dir / "scripts" / "compute_chemical_space.py"
+                
+                # Check for conda python path
+                python_exe = os.environ.get("Q_AI_DRUG_PYTHON")
+                if not python_exe:
+                    conda_qadn_python = r"C:\Users\pc\anaconda3\envs\qadn\python.exe"
+                    if os.path.exists(conda_qadn_python):
+                        python_exe = conda_qadn_python
+                    else:
+                        python_exe = "python"
+                
+                cmd = [
+                    python_exe, str(script_path),
+                    "--input", str(input_file),
+                    "--output", str(output_file),
+                    "--clusters", "4"
+                ]
+                
+                try:
+                    logger.info(f"Running Chemical Space computation: {' '.join(cmd)}")
+                    result = subprocess.run(
+                        cmd,
+                        cwd=str(q_ai_drug_dir),
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        check=False
+                    )
+                    
+                    if result.returncode != 0:
+                        logger.error(f"Chemical Space script failed: {result.stderr}")
+                    elif output_file.exists():
+                        computed_coords = json.loads(output_file.read_text(encoding="utf-8"))
+                        logger.info(f"Loaded {len(computed_coords)} computed coordinates.")
+                except Exception as e:
+                    logger.error(f"Exception running Chemical Space script: {str(e)}")
 
         for mol in molecules:
             mol_id = str(mol["_id"])
             comp_id = mol.get("compound_id") or f"MOL-{mol_id[-6:]}"
 
-            # Generate deterministic coords
-            x, y, cluster = generate_deterministic_coords(mol_id)
+            # Retrieve coords or fallback to deterministic
+            mol_computed = computed_coords.get(mol_id)
+            if mol_computed:
+                x = mol_computed["x"]
+                y = mol_computed["y"]
+                cluster = mol_computed["cluster"]
+                current_method = mol_computed["method"]
+            else:
+                x, y, cluster = generate_deterministic_coords(mol_id)
+                current_method = "deterministic_placeholder"
 
             point = {
                 "molecule_id": mol_id,
@@ -177,7 +243,7 @@ class ChemicalSpaceService:
                     "x": x,
                     "y": y,
                     "cluster": cluster,
-                    "method": resolved_method,
+                    "method": current_method,
                     "computed_at": now
                 }
                 

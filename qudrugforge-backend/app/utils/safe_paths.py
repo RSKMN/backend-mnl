@@ -10,6 +10,34 @@ def resolve_and_validate_run_dir(run_name: str = None, source_output_dir: str = 
     """
     root_path = Path(settings.Q_AI_DRUG_OUTPUT_ROOT).resolve()
     
+    if source_output_dir and source_output_dir.startswith("gs://"):
+        import uuid
+        from google.cloud import storage
+        try:
+            client = storage.Client()
+        except:
+            client = storage.Client.create_anonymous_client()
+            
+        parts = source_output_dir[5:].split("/", 1)
+        bucket_name = parts[0]
+        prefix = parts[1] if len(parts) > 1 else ""
+        
+        local_dir = Path(settings.LOCAL_STORAGE_ROOT) / "temp_imports" / str(uuid.uuid4())
+        local_dir.mkdir(parents=True, exist_ok=True)
+        
+        bucket = client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=prefix)
+        for blob in blobs:
+            rel_path = blob.name[len(prefix):].lstrip("/")
+            dest_file = local_dir / rel_path
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                blob.download_to_filename(str(dest_file))
+            except:
+                pass
+                
+        return local_dir
+
     if run_name:
         target_path = root_path / run_name
     elif source_output_dir:

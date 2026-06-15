@@ -1,0 +1,7 @@
+target_id,candidate_id,smiles,homo_ev,lumo_ev,homo_lumo_gap_ev,dipole_debye,max_abs_partial_charge,xtb_total_energy_eh,quantum_score,qm_mode,qm_is_real,qm_note
+EGFR,EGFR_CAND_00001,CCO,-11.206,1.32,12.526,20.23,0.0,-11.39335158,0.0,xtb_gfn2_single_point,True,xTB GFN2 single-point calculation on RDKit MMFF/UFF conformer via WSL.
+EGFR,EGFR_CAND_00002,CCO,-11.206,1.32,12.526,20.23,0.0,-11.39335158,0.0,xtb_gfn2_single_point,True,xTB GFN2 single-point calculation on RDKit MMFF/UFF conformer via WSL.
+PARP1,PARP1_CAND_00001,CCO,-11.206,1.32,12.526,20.23,0.0,-11.39335158,0.0,xtb_gfn2_single_point,True,xTB GFN2 single-point calculation on RDKit MMFF/UFF conformer via WSL.
+PARP1,PARP1_CAND_00002,CCO,-11.206,1.32,12.526,20.23,0.0,-11.39335158,0.0,xtb_gfn2_single_point,True,xTB GFN2 single-point calculation on RDKit MMFF/UFF conformer via WSL.
+PIK3CA,PIK3CA_CAND_00001,CCO,-11.206,1.32,12.526,20.23,0.0,-11.39335158,0.0,xtb_gfn2_single_point,True,xTB GFN2 single-point calculation on RDKit MMFF/UFF conformer via WSL.
+PIK3CA,PIK3CA_CAND_00002,CCO,-11.206,1.32,12.526,20.23,0.0,-11.39335158,0.0,xtb_gfn2_single_point,True,xTB GFN2 single-point calculation on RDKit MMFF/UFF conformer via WSL.

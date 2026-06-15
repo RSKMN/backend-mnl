@@ -42,36 +42,36 @@ async def generic_exception_handler(request: Request, exc: Exception) -> JSONRes
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
     )
 
-from fastapi.exceptions import RequestValidationError
+class DomainError(Exception):
+    def __init__(self, message: str, code: str, details: Optional[dict] = None, status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.details = details or {}
+        self.status_code = status_code
 
-def _sanitize_pydantic_errors(errors: list) -> list:
-    """
-    Sanitize Pydantic v2 validation errors to ensure all values are JSON-serializable.
-    Pydantic v2 stores the original exception in ctx['error'] as a Python exception
-    object which is not JSON-serializable. Convert them to strings.
-    """
-    clean = []
-    for err in errors:
-        sanitized = {}
-        for k, v in err.items():
-            if k == "ctx" and isinstance(v, dict):
-                sanitized[k] = {
-                    ck: str(cv) if not isinstance(cv, (str, int, float, bool, type(None))) else cv
-                    for ck, cv in v.items()
-                }
-            elif isinstance(v, (str, int, float, bool, list, dict, type(None))):
-                sanitized[k] = v
-            else:
-                sanitized[k] = str(v)
-        clean.append(sanitized)
-    return clean
+class OrchestrationFailure(DomainError):
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="ORCHESTRATION_FAILURE", details=details, status_code=status.HTTP_502_BAD_GATEWAY)
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    logger.warning(f"RequestValidationError caught on request {request.url.path}")
+class ComputeTimeout(DomainError):
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="COMPUTE_TIMEOUT", details=details, status_code=status.HTTP_408_REQUEST_TIMEOUT)
+
+class MissingEvidenceError(DomainError):
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="MISSING_EVIDENCE", details=details, status_code=status.HTTP_404_NOT_FOUND)
+
+class DependencyFailure(DomainError):
+    def __init__(self, message: str, details: Optional[dict] = None):
+        super().__init__(message, code="DEPENDENCY_FAILURE", details=details, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+async def domain_exception_handler(request: Request, exc: DomainError) -> JSONResponse:
+    logger.warning(f"DomainError caught on request {request.url.path}: [{exc.code}] {exc.message}")
     return error_response(
-        code="VALIDATION_ERROR",
-        message="Invalid request data.",
-        details={"errors": _sanitize_pydantic_errors(exc.errors())},
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY
+        code=exc.code,
+        message=exc.message,
+        details=exc.details,
+        status_code=exc.status_code
     )
 

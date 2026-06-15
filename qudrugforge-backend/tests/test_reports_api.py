@@ -289,3 +289,29 @@ async def test_import_q_ai_drug_report_artifacts_if_available(
     assert report["report_type"] == "imported_q_ai_drug"
     assert report["source"] == "q_ai_drug"
     assert report["file_ids"]
+
+
+@pytest.mark.asyncio
+async def test_report_generation_prohibited_language(async_client, auth_headers, project, workspace, test_db):
+    await _seed_report_context(test_db, project["id"], workspace["id"])
+
+    create_response = await async_client.post(
+        f"/api/v1/projects/{project['id']}/reports",
+        json={"title": "Report for validated drug candidate", "report_type": "project_summary"},
+        headers=auth_headers,
+    )
+    assert create_response.status_code == 200
+    report_id = create_response.json()["data"]["report_id"]
+
+    response = await async_client.post(
+        f"/api/v1/projects/{project['id']}/reports/{report_id}/generate",
+        json={
+            "formats": ["html"],
+            "include_sections": REPORT_SAMPLE_KEYS,
+            "top_n": 5,
+        },
+        headers=auth_headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "PROHIBITED_LANGUAGE_DETECTED"
+

@@ -1,0 +1,9 @@
+{
+  "stage": "report",
+  "project_dir": "E:\\rskmn\\Npersonal\\quinfosys\\drug_discovery_research\\work\\mnl\\backend-mnl\\qudrugforge-backend\\tests\\utils\\sample_q_ai_drug_outputs\\runs\\6a19e27fa92781c575037f9c\\0d07556c-e9bf-4e82-991f-69e7350c8147",
+  "reports": {
+    "manifest": "outputs\\cancer_proof_v1\\run_manifest.json",
+    "html": "outputs\\cancer_proof_v1\\report.html",
+    "pdf": "outputs\\cancer_proof_v1\\report.pdf"
+  }
+}

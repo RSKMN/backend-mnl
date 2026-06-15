@@ -3,11 +3,13 @@ from typing import Optional, List, Dict, Any
 from app.repositories.project_repository import project_repository
 from app.repositories.project_input_repository import project_input_repository
 from app.repositories.workspace_repository import workspace_repository
+from app.services.audit_service import audit_service
 from app.core.exceptions import AppException
 from app.utils.datetime import utc_now
+import asyncio
 
 class ProjectService:
-    async def check_workspace_access(self, workspace_id: str, user_id: str) -> dict:
+    async def check_workspace_access(self, workspace_id: str, user_id: str, allowed_roles: list[str] = None) -> dict:
         membership = await workspace_repository.get_membership(workspace_id, user_id)
         if not membership:
             raise AppException(
@@ -15,10 +17,19 @@ class ProjectService:
                 code="WORKSPACE_ACCESS_DENIED",
                 message="User is not an active member of this workspace"
             )
+        
+        if allowed_roles:
+            role = membership.get("role", "viewer").upper()
+            if role != "OWNER" and role not in allowed_roles:
+                raise AppException(
+                    status_code=403,
+                    code="WORKSPACE_ACCESS_DENIED",
+                    message=f"Insufficient permissions. Required one of roles: {allowed_roles}"
+                )
         return membership
 
     async def create_project(self, workspace_id: str, name: str, description: Optional[str], disease_type: Optional[str], cancer_type: Optional[str], user_id: str) -> dict:
-        await self.check_workspace_access(workspace_id, user_id)
+        await self.check_workspace_access(workspace_id, user_id, allowed_roles=["ADMIN", "SCIENTIST"])
         
         slug = await project_repository.generate_unique_slug(workspace_id, name)
         now = utc_now()
@@ -67,6 +78,16 @@ class ProjectService:
         }
         
         await project_input_repository.create_default_inputs(str(project["_id"]), workspace_id, default_inputs)
+        
+        asyncio.create_task(
+            audit_service.log_event(
+                action="PROJECT_CREATED",
+                user_id=user_id,
+                workspace_id=workspace_id,
+                project_id=str(project["_id"]),
+                metadata={"name": name}
+            )
+        )
         
         return project
 
@@ -147,9 +168,20 @@ class ProjectService:
                 message="Project not found"
             )
             
-        await self.check_workspace_access(str(project["workspace_id"]), user_id)
+        await self.check_workspace_access(str(project["workspace_id"]), user_id, allowed_roles=["ADMIN"])
         
-        return await project_repository.archive_project(project_id, utc_now())
+        result = await project_repository.archive_project(project_id, utc_now())
+        if result:
+            asyncio.create_task(
+                audit_service.log_event(
+                    action="PROJECT_DELETED",
+                    user_id=user_id,
+                    workspace_id=str(project["workspace_id"]),
+                    project_id=project_id,
+                    metadata={"name": project["name"]}
+                )
+            )
+        return result
 
     async def get_project_overview(self, project_id: str, user_id: str) -> dict:
         project = await project_repository.get_project_by_id(project_id)

@@ -1,7 +1,7 @@
 import json
 import logging
 from typing import Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Query, Path
+from fastapi import APIRouter, Depends, Request, UploadFile, File, Form, Query, Path
 from fastapi.responses import FileResponse
 
 from app.services.file_service import file_service
@@ -104,18 +104,67 @@ async def get_file_detail(
 
 @router.get("/files/{file_id}/download")
 async def download_file(
+    request: Request,
     file_id: str = Path(...),
-    current_user: dict = Depends(get_current_active_user)
+    token: Optional[str] = Query(None, description="JWT access token for direct browser download links"),
 ):
-    user_id = str(current_user["_id"])
-    
+    """
+    Download a file by its file_id.
+    Supports two authentication methods:
+      1. Standard Bearer token in Authorization header (API clients)
+      2. Optional ?token=<jwt> query param for direct browser download hrefs
+    """
+    from app.core.security import decode_token
+    from app.repositories.user_repository import user_repository
+    from app.core.exceptions import AppException
+    from jose import JWTError
+
+    resolved_user = None
+
+    # 1. Try query param token (for direct browser download links)
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = payload.get("sub")
+            token_type = payload.get("type")
+            if user_id and token_type == "access":
+                resolved_user = await user_repository.get_by_id(user_id)
+        except (JWTError, Exception) as e:
+            logger.warning(f"[Download] Query param token invalid: {e}")
+
+    # 2. Try Authorization: Bearer <token> header
+    if not resolved_user:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            bearer_token = auth_header[7:].strip()
+            try:
+                payload = decode_token(bearer_token)
+                user_id = payload.get("sub")
+                token_type = payload.get("type")
+                if user_id and token_type == "access":
+                    resolved_user = await user_repository.get_by_id(user_id)
+            except (JWTError, Exception) as e:
+                logger.warning(f"[Download] Bearer token invalid: {e}")
+
+    if not resolved_user:
+        raise AppException(
+            status_code=401,
+            code="UNAUTHORIZED",
+            message="Authentication required. Provide a Bearer token in the Authorization header or a ?token= query param."
+        )
+
+    if resolved_user.get("status") != "active":
+        raise AppException(status_code=403, code="FORBIDDEN", message="Inactive user")
+
+    user_id = str(resolved_user["_id"])
     file_path, original_filename = await file_service.get_file_download_path(file_id, user_id)
-    
+
     return FileResponse(
         path=file_path,
         filename=original_filename,
         media_type="application/octet-stream"
     )
+
 
 @router.delete("/files/{file_id}")
 async def delete_file(

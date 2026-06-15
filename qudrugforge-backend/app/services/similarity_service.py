@@ -1,6 +1,11 @@
 import logging
 from typing import Optional, List, Dict, Any, Tuple
 from bson import ObjectId
+import json
+import tempfile
+import subprocess
+import os
+from pathlib import Path
 
 from app.core.exceptions import AppException
 from app.utils.datetime import utc_now
@@ -135,29 +140,95 @@ class SimilarityService:
         results = []
         method_used = "smiles_jaccard_fallback"
 
-        for mol in all_molecules:
-            mol_id = str(mol["_id"])
-            if not include_self and resolved_molecule_id and mol_id == resolved_molecule_id:
-                continue
+        if not RDKIT_AVAILABLE and all_molecules:
+            # Prepare data
+            targets = []
+            for mol in all_molecules:
+                mol_id = str(mol["_id"])
+                if not include_self and resolved_molecule_id and mol_id == resolved_molecule_id:
+                    continue
+                if mol.get("smiles"):
+                    targets.append({"id": mol_id, "smiles": mol.get("smiles")})
             
-            mol_smiles = mol.get("smiles")
-            if not mol_smiles:
-                continue
+            input_data = {
+                "mode": "search",
+                "query_smiles": resolved_smiles,
+                "targets": targets
+            }
+            
+            with tempfile.TemporaryDirectory() as tmpdir:
+                input_file = Path(tmpdir) / "input.json"
+                output_file = Path(tmpdir) / "output.json"
+                input_file.write_text(json.dumps(input_data), encoding="utf-8")
+                
+                q_ai_drug_dir = Path(__file__).parent.parent.parent.parent.parent / "q-ai-drug-new"
+                if not q_ai_drug_dir.exists():
+                    q_ai_drug_dir = Path("../../q-ai-drug-new").resolve()
+                    
+                script_path = q_ai_drug_dir / "scripts" / "compute_similarity.py"
+                
+                python_exe = os.environ.get("Q_AI_DRUG_PYTHON")
+                if not python_exe:
+                    conda_qadn_python = r"C:\Users\pc\anaconda3\envs\qadn\python.exe"
+                    if os.path.exists(conda_qadn_python):
+                        python_exe = conda_qadn_python
+                    else:
+                        python_exe = "python"
+                
+                cmd = [
+                    python_exe, str(script_path),
+                    "--input", str(input_file),
+                    "--output", str(output_file)
+                ]
+                
+                try:
+                    logger.info(f"Running Similarity computation: {' '.join(cmd)}")
+                    result = subprocess.run(cmd, cwd=str(q_ai_drug_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+                    if result.returncode != 0:
+                        logger.error(f"Similarity script failed: {result.stderr}")
+                    elif output_file.exists():
+                        sims = json.loads(output_file.read_text(encoding="utf-8"))
+                        for target in targets:
+                            sim = sims.get(target["id"], 0.0)
+                            if sim >= min_similarity:
+                                # Find the actual mol to attach other metadata
+                                mol = next(m for m in all_molecules if str(m["_id"]) == target["id"])
+                                results.append({
+                                    "molecule_id": target["id"],
+                                    "compound_id": mol.get("compound_id") or f"MOL-{target['id'][-6:]}",
+                                    "smiles": target["smiles"],
+                                    "similarity": sim,
+                                    "mw": mol.get("mw") or 0.0,
+                                    "logp": mol.get("logp") or 0.0,
+                                    "qed": mol.get("qed") or 0.0,
+                                    "status": mol.get("status") or "uploaded"
+                                })
+                        method_used = "rdkit_tanimoto"
+                except Exception as e:
+                    logger.error(f"Exception running Similarity script: {str(e)}")
 
-            similarity, method = compute_similarity(resolved_smiles, mol_smiles)
-            method_used = method
-
-            if similarity >= min_similarity:
-                results.append({
-                    "molecule_id": mol_id,
-                    "compound_id": mol.get("compound_id") or f"MOL-{mol_id[-6:]}",
-                    "smiles": mol_smiles,
-                    "similarity": similarity,
-                    "mw": mol.get("mw") or 0.0,
-                    "logp": mol.get("logp") or 0.0,
-                    "qed": mol.get("qed") or 0.0,
-                    "status": mol.get("status") or "uploaded"
-                })
+        if not results and method_used == "smiles_jaccard_fallback":
+            # Native fallback or RDKit is available in environment
+            for mol in all_molecules:
+                mol_id = str(mol["_id"])
+                if not include_self and resolved_molecule_id and mol_id == resolved_molecule_id:
+                    continue
+                mol_smiles = mol.get("smiles")
+                if not mol_smiles:
+                    continue
+                similarity, method = compute_similarity(resolved_smiles, mol_smiles)
+                method_used = method
+                if similarity >= min_similarity:
+                    results.append({
+                        "molecule_id": mol_id,
+                        "compound_id": mol.get("compound_id") or f"MOL-{mol_id[-6:]}",
+                        "smiles": mol_smiles,
+                        "similarity": similarity,
+                        "mw": mol.get("mw") or 0.0,
+                        "logp": mol.get("logp") or 0.0,
+                        "qed": mol.get("qed") or 0.0,
+                        "status": mol.get("status") or "uploaded"
+                    })
 
         # Sort by similarity descending
         results.sort(key=lambda x: x["similarity"], reverse=True)
@@ -208,20 +279,58 @@ class SimilarityService:
         matrix = []
         method_used = "smiles_jaccard_fallback"
 
-        for i, mol_i in enumerate(molecules):
-            row = []
-            s_i = mol_i.get("smiles")
-            for j, mol_j in enumerate(molecules):
-                s_j = mol_j.get("smiles")
-                if i == j:
-                    sim = 1.0
-                elif not s_i or not s_j:
-                    sim = 0.0
-                else:
-                    sim, method = compute_similarity(s_i, s_j)
-                    method_used = method
-                row.append(sim)
-            matrix.append(row)
+        if not RDKIT_AVAILABLE and molecules:
+            input_data = {
+                "mode": "matrix",
+                "molecules": [{"id": str(m["_id"]), "smiles": m.get("smiles")} for m in molecules]
+            }
+            with tempfile.TemporaryDirectory() as tmpdir:
+                input_file = Path(tmpdir) / "input.json"
+                output_file = Path(tmpdir) / "output.json"
+                input_file.write_text(json.dumps(input_data), encoding="utf-8")
+                
+                q_ai_drug_dir = Path(__file__).parent.parent.parent.parent.parent / "q-ai-drug-new"
+                if not q_ai_drug_dir.exists():
+                    q_ai_drug_dir = Path("../../q-ai-drug-new").resolve()
+                script_path = q_ai_drug_dir / "scripts" / "compute_similarity.py"
+                
+                python_exe = os.environ.get("Q_AI_DRUG_PYTHON")
+                if not python_exe:
+                    conda_qadn_python = r"C:\Users\pc\anaconda3\envs\qadn\python.exe"
+                    if os.path.exists(conda_qadn_python):
+                        python_exe = conda_qadn_python
+                    else:
+                        python_exe = "python"
+                
+                cmd = [python_exe, str(script_path), "--input", str(input_file), "--output", str(output_file)]
+                
+                try:
+                    logger.info(f"Running Similarity Matrix computation: {' '.join(cmd)}")
+                    result = subprocess.run(cmd, cwd=str(q_ai_drug_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=False)
+                    if result.returncode != 0:
+                        logger.error(f"Similarity script failed: {result.stderr}")
+                    elif output_file.exists():
+                        res = json.loads(output_file.read_text(encoding="utf-8"))
+                        matrix = res.get("matrix", [])
+                        method_used = "rdkit_tanimoto"
+                except Exception as e:
+                    logger.error(f"Exception running Similarity script: {str(e)}")
+
+        if not matrix:
+            for i, mol_i in enumerate(molecules):
+                row = []
+                s_i = mol_i.get("smiles")
+                for j, mol_j in enumerate(molecules):
+                    s_j = mol_j.get("smiles")
+                    if i == j:
+                        sim = 1.0
+                    elif not s_i or not s_j:
+                        sim = 0.0
+                    else:
+                        sim, method = compute_similarity(s_i, s_j)
+                        method_used = method
+                    row.append(sim)
+                matrix.append(row)
 
         serialized_mols = [
             {

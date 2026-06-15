@@ -9,12 +9,17 @@ from app.services.pipeline_orchestrator_service import pipeline_orchestrator_ser
 from app.repositories.pipeline_repository import pipeline_repository
 from app.repositories.project_repository import project_repository
 from app.repositories.workspace_repository import workspace_repository
+from app.core.rate_limit import limiter
+from app.core.config import settings
+from fastapi import Request
+from app.services.pipeline_validation_service import pipeline_validation_service
+from app.services.project_input_service import project_input_service
 
 logger = logging.getLogger("qudrugforge-pipeline-api")
 
 router = APIRouter(prefix="/projects/{project_id}/pipeline", tags=["Pipeline Orchestration"])
 
-async def check_project_and_authorize(project_id: str, user_id: str):
+async def check_project_and_authorize(project_id: str, user_id: str, allowed_roles: List[str] = None):
     project = await project_repository.get_project_by_id(project_id)
     if not project:
         raise AppException(
@@ -30,17 +35,50 @@ async def check_project_and_authorize(project_id: str, user_id: str):
             code="WORKSPACE_ACCESS_DENIED",
             message="User does not have active member permissions for this workspace."
         )
+        
+    if allowed_roles:
+        role = membership.get("role", "viewer").upper()
+        if role != "OWNER" and role not in allowed_roles:
+            raise AppException(
+                status_code=403,
+                code="WORKSPACE_ACCESS_DENIED",
+                message=f"Insufficient permissions. Required one of roles: {allowed_roles}"
+            )
+            
     return project, workspace_id
 
 @router.post("/run", response_model=None)
+@limiter.limit(settings.RATE_LIMIT_PIPELINE)
 async def trigger_pipeline_run(
-    background_tasks: BackgroundTasks,
+    request: Request,
     project_id: str = Path(...),
     body: PipelineRunRequest = Body(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: dict = Depends(get_current_active_user)
 ):
     user_id = str(current_user["_id"])
-    project, workspace_id = await check_project_and_authorize(project_id, user_id)
+    project, workspace_id = await check_project_and_authorize(project_id, user_id, allowed_roles=["ADMIN", "SCIENTIST"])
+
+    # 0.a Validate scientific inputs
+    inputs_doc = await project_input_service.get_project_inputs(project_id, user_id)
+    readiness = pipeline_validation_service.evaluate_readiness(inputs_doc)
+    pipeline_validation_service.validate_requested_stages(body.pipeline, readiness)
+
+    # 0. Check Queue Quota per-user
+    from bson import ObjectId
+    from app.core.exceptions import DomainError
+    
+    active_pipelines = await pipeline_repository.collection.count_documents({
+        "created_by": ObjectId(user_id),
+        "status": {"$in": ["queued", "running"]}
+    })
+    
+    if active_pipelines >= settings.MAX_ACTIVE_JOBS_PER_USER:
+        raise DomainError(
+            status_code=429,
+            code="QUEUE_QUOTA_EXCEEDED",
+            message=f"Queue quota exceeded. You already have {active_pipelines} active pipeline(s). Maximum allowed is {settings.MAX_ACTIVE_JOBS_PER_USER}."
+        )
 
     # 1. Create pipeline run document
     pipeline_run = await pipeline_orchestrator_service.create_pipeline_run(
@@ -53,18 +91,50 @@ async def trigger_pipeline_run(
     
     pipeline_run_id = str(pipeline_run["_id"])
 
-    # 2. Add sequential execution task to FastAPI BackgroundTasks
-    background_tasks.add_task(
-        pipeline_orchestrator_service.run_pipeline,
-        pipeline_run_id,
-        project_id,
-        user_id
+    # 2. Create the Supervisor Job Tracking Record
+    from app.repositories.job_repository import job_repository
+    from app.utils.datetime import utc_now
+    job_doc = {
+        "project_id": project["_id"],
+        "task_type": "pipeline_supervisor",
+        "status": "QUEUED",
+        "progress": 0,
+        "created_at": utc_now()
+    }
+    supervisor_job = await job_repository.create_job(job_doc)
+    supervisor_job_id = str(supervisor_job["_id"])
+
+    # 3. Enqueue the Supervisor Task
+    # Synchronous execution for testing
+    await pipeline_orchestrator_service.run_pipeline_supervisor(
+        pipeline_run_id, project_id, user_id, supervisor_job_id
     )
 
     return {
         "success": True,
-        "data": PipelineRunResponse.from_mongo(pipeline_run).model_dump(),
+        "data": {
+            "job_id": supervisor_job_id,
+            "pipeline_run_id": pipeline_run_id,
+            "status": "QUEUED"
+        },
         "message": "Scientific orchestration pipeline enqueued and started in background."
+    }
+
+@router.get("/readiness", response_model=None)
+async def get_pipeline_readiness(
+    project_id: str = Path(...),
+    current_user: dict = Depends(get_current_active_user)
+):
+    user_id = str(current_user["_id"])
+    await check_project_and_authorize(project_id, user_id)
+
+    inputs_doc = await project_input_service.get_project_inputs(project_id, user_id)
+    readiness = pipeline_validation_service.evaluate_readiness(inputs_doc)
+
+    return {
+        "success": True,
+        "data": readiness,
+        "message": "Pipeline readiness fetched successfully."
     }
 
 @router.get("/runs", response_model=None)

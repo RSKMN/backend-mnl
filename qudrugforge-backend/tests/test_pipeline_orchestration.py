@@ -6,7 +6,35 @@ from app.services.pipeline_orchestrator_service import pipeline_orchestrator_ser
 from app.repositories.pipeline_repository import pipeline_repository
 from app.repositories.experiment_repository import experiment_repository
 from app.repositories.project_repository import project_repository
+from app.repositories.job_repository import job_repository
 from app.utils.datetime import utc_now
+
+# Custom mock for _dispatch_stage_chain in tests to simulate Celery eager chain execution in event loop background
+async def mock_dispatch_stage_chain(self, stage: str, exp_id: str, project_id: str, user_id: str, params: dict, pipeline_run_id: str) -> str:
+    job_doc = {
+        "project_id": ObjectId(project_id),
+        "experiment_id": ObjectId(exp_id),
+        "task_type": f"stage_{stage}",
+        "status": "QUEUED",
+        "progress": 0,
+        "created_at": utc_now()
+    }
+    job = await job_repository.create_job(job_doc)
+    stage_job_id = str(job["_id"])
+    
+    async def run_chain():
+        try:
+            # 1. execute engine stage sync
+            await self.execute_engine_stage_sync(stage, exp_id, project_id, user_id, params, pipeline_run_id, stage_job_id)
+            # 2. run imports
+            from app.tasks.imports import _run_import
+            await _run_import(stage_job_id, project_id, user_id, "cancer_proof_v1", exp_id)
+        except Exception as exc:
+            # Mark the stage job as FAILED if execution/imports fail
+            await job_repository.update_job_status(stage_job_id, "FAILED", error_message=str(exc))
+
+    asyncio.create_task(run_chain())
+    return stage_job_id
 
 @pytest.mark.asyncio
 async def test_full_pipeline_orchestration_lifecycle(test_db, project, registered_user):
@@ -26,12 +54,24 @@ async def test_full_pipeline_orchestration_lifecycle(test_db, project, registere
     assert pipeline_run["status"] == "queued"
     assert len(pipeline_run["pipeline"]) == 3
 
-    # 2. Trigger asynchronous background run
-    await pipeline_orchestrator_service.run_pipeline(
-        pipeline_run_id=pipeline_run_id,
-        project_id=project_id,
-        user_id=user_id
-    )
+    # Create the Supervisor Job Tracking Record
+    supervisor_job = await job_repository.create_job({
+        "project_id": ObjectId(project_id),
+        "task_type": "pipeline_supervisor",
+        "status": "QUEUED",
+        "progress": 0,
+        "created_at": utc_now()
+    })
+    supervisor_job_id = str(supervisor_job["_id"])
+
+    # 2. Trigger asynchronous background run with patched _dispatch_stage_chain
+    with patch.object(pipeline_orchestrator_service.__class__, "_dispatch_stage_chain", mock_dispatch_stage_chain):
+        await pipeline_orchestrator_service.run_pipeline_supervisor(
+            pipeline_run_id=pipeline_run_id,
+            project_id=project_id,
+            user_id=user_id,
+            supervisor_job_id=supervisor_job_id
+        )
 
     # 3. Fetch completed pipeline run details from database
     final_run = await pipeline_repository.get_pipeline_run_by_id(pipeline_run_id)
@@ -90,15 +130,26 @@ async def test_pipeline_execution_failure_handling(test_db, project, registered_
     )
     pipeline_run_id = str(pipeline_run["_id"])
 
+    supervisor_job = await job_repository.create_job({
+        "project_id": ObjectId(project_id),
+        "task_type": "pipeline_supervisor",
+        "status": "QUEUED",
+        "progress": 0,
+        "created_at": utc_now()
+    })
+    supervisor_job_id = str(supervisor_job["_id"])
+
     # Patch execution adapter to mock execution failure
     with patch("app.integrations.q_ai_drug_execution.q_ai_drug_execution_service.execute_stage", new_callable=AsyncMock) as mock_exec:
         mock_exec.side_effect = Exception("Subprocess adapter simulation failure")
 
-        await pipeline_orchestrator_service.run_pipeline(
-            pipeline_run_id=pipeline_run_id,
-            project_id=project_id,
-            user_id=user_id
-        )
+        with patch.object(pipeline_orchestrator_service.__class__, "_dispatch_stage_chain", mock_dispatch_stage_chain):
+            await pipeline_orchestrator_service.run_pipeline_supervisor(
+                pipeline_run_id=pipeline_run_id,
+                project_id=project_id,
+                user_id=user_id,
+                supervisor_job_id=supervisor_job_id
+            )
 
     final_run = await pipeline_repository.get_pipeline_run_by_id(pipeline_run_id)
     assert final_run["status"] == "failed"

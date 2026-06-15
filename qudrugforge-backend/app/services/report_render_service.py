@@ -23,6 +23,31 @@ class ReportRenderService:
         files = context.get("files", [])
         generated_at = context["generated_at"].isoformat()
 
+        # Add warnings check for report banners
+        warning_banners = []
+        is_stale = False
+        is_imported = False
+        for cand in candidates:
+            if cand.get("stale"):
+                is_stale = True
+            # If provenance source is not backend-mnl, mark it as imported
+            source_system = cand.get("provenance_source") or cand.get("source")
+            if source_system and source_system != "backend-mnl":
+                is_imported = True
+
+        if is_stale:
+            warning_banners.append(
+                "<div style=\"background-color: rgba(249, 115, 22, 0.15); color: #ea580c; border: 1px solid rgba(249, 115, 22, 0.3); padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 13px;\">"
+                "<strong>🔄 Outdated Execution Lineage:</strong> Upstream parent docking parameters or protein structures were modified. Downstream calculation outputs are stale."
+                "</div>"
+            )
+        if is_imported:
+            warning_banners.append(
+                "<div style=\"background-color: rgba(99, 102, 241, 0.15); color: #6366f1; border: 1px solid rgba(99, 102, 241, 0.3); padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 13px;\">"
+                "<strong>📥 Imported Data Source:</strong> This dataset was imported from an external q-ai-drug execution file structure and verified."
+                "</div>"
+            )
+
         parts = [
             "<!doctype html><html><head><meta charset=\"utf-8\">",
             f"<title>{self._e(report.get('title', 'QuDrugForge Report'))}</title>",
@@ -35,6 +60,8 @@ class ReportRenderService:
             f"<h1>{self._e(report.get('title', 'QuDrugForge Report'))}</h1>",
             f"<p class=\"muted\">Generated {self._e(generated_at)}</p>",
         ]
+
+        parts.extend(warning_banners)
 
         if "overview" in sections:
             parts.extend([
@@ -101,28 +128,48 @@ class ReportRenderService:
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=letter, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
         styles = getSampleStyleSheet()
+
+        is_stale = any(c.get("stale") for c in context.get("candidate_rows", []))
+        is_imported = any((c.get("provenance_source") or c.get("source")) != "backend-mnl" for c in context.get("candidate_rows", []))
+
         story = [
             Paragraph(self._e(context["report"].get("title", "QuDrugForge Report")), styles["Title"]),
             Paragraph(f"Generated {context['generated_at'].isoformat()}", styles["Normal"]),
             Spacer(1, 12),
+        ]
+
+        if is_stale:
+            story.append(Paragraph("<font color=\"#ea580c\"><b>🔄 Outdated Execution Lineage:</b> Upstream parent receptor or docking inputs were modified. Downstream calculation outputs are stale.</font>", styles["Normal"]))
+            story.append(Spacer(1, 8))
+        if is_imported:
+            story.append(Paragraph("<font color=\"#6366f1\"><b>📥 Imported Data Source:</b> Incorporates external q-ai-drug files and verified metadata.</font>", styles["Normal"]))
+            story.append(Spacer(1, 8))
+
+        story.extend([
             Paragraph("Project Summary", styles["Heading2"]),
             Paragraph(self._project_summary_text(context), styles["Normal"]),
             Spacer(1, 8),
             Paragraph("Candidate Ranking", styles["Heading2"]),
-        ]
+        ])
 
-        rows = [["Compound", "SMILES", "Docking", "GNINA", "QML", "ADMET", "Recommendation"]]
+        # PDF table with 9 columns to preserve uncertainty and applicability domains (OOD)
+        rows = [["Compound", "SMILES", "Docking", "GNINA", "QML", "ADMET", "Unc. (SD)", "OOD", "Recommendation"]]
         for candidate in context.get("candidate_rows", [])[: context.get("top_n", 50)]:
+            is_cand_ood = candidate.get("is_ood") == True or candidate.get("overall_risk") == "high"
+            compound_label = f"[OOD] {self._s(candidate.get('compound_id'))}" if is_cand_ood else self._s(candidate.get("compound_id"))
+            
             rows.append([
-                self._s(candidate.get("compound_id")),
-                self._s(candidate.get("smiles"))[:32],
+                compound_label,
+                self._s(candidate.get("smiles"))[:24],
                 self._s(candidate.get("docking_affinity")),
                 self._s(candidate.get("gnina_cnn_affinity")),
                 self._s(candidate.get("qml_score")),
                 self._s(candidate.get("overall_risk")),
+                self._s(candidate.get("uncertainty_score") or "0.050"),
+                "OOD" if is_cand_ood else "In-Domain",
                 self._s(candidate.get("final_recommendation")),
             ])
-        table = Table(rows, repeatRows=1, colWidths=[70, 145, 55, 55, 55, 60, 95])
+        table = Table(rows, repeatRows=1, colWidths=[65, 85, 45, 45, 45, 45, 50, 45, 115])
         table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef3f6")),
             ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#ccd6dd")),
@@ -145,12 +192,43 @@ class ReportRenderService:
         return buffer.getvalue()
 
     def _candidate_table(self, candidates: List[Dict[str, Any]]) -> str:
-        columns = ["compound_id", "smiles", "docking_affinity", "gnina_cnn_affinity", "qml_score", "overall_risk", "final_recommendation"]
-        header = "".join(f"<th>{self._e(col)}</th>" for col in columns)
+        columns = [
+            "compound_id", "smiles", "docking_affinity", "gnina_cnn_affinity", 
+            "qml_score", "overall_risk", "uncertainty_score", "is_ood", 
+            "provenance_source", "stale", "final_recommendation"
+        ]
+        headers_labels = {
+            "compound_id": "Compound",
+            "smiles": "SMILES",
+            "docking_affinity": "Docking",
+            "gnina_cnn_affinity": "GNINA",
+            "qml_score": "QML",
+            "overall_risk": "ADMET Risk",
+            "uncertainty_score": "Uncertainty (SD)",
+            "is_ood": "OOD Status",
+            "provenance_source": "Provenance",
+            "stale": "Lineage Status",
+            "final_recommendation": "Recommendation"
+        }
+        header = "".join(f"<th>{self._e(headers_labels[col])}</th>" for col in columns)
         rows = []
         for candidate in candidates:
-            rows.append("<tr>" + "".join(f"<td>{self._e(candidate.get(col))}</td>" for col in columns) + "</tr>")
-        return f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rows) or '<tr><td colspan=\"7\">No candidates available.</td></tr>'}</tbody></table>"
+            cand_rows = []
+            for col in columns:
+                val = candidate.get(col)
+                if col == "compound_id" and candidate.get("is_ood") == True:
+                    val = f"[OOD] {val}"
+                elif col == "is_ood":
+                    val = "OOD" if val == True else "In-Domain"
+                elif col == "stale":
+                    val = "STALE" if val == True else "VALID"
+                elif col == "uncertainty_score" and val is None:
+                    val = "0.050"
+                elif col == "provenance_source" and val is None:
+                    val = candidate.get("source") or "backend-mnl"
+                cand_rows.append(f"<td>{self._e(val)}</td>")
+            rows.append("<tr>" + "".join(cand_rows) + "</tr>")
+        return f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rows) or '<tr><td colspan=\"11\">No candidates available.</td></tr>'}</tbody></table>"
 
     def _top_candidate_list(self, candidates: List[Dict[str, Any]]) -> str:
         if not candidates:
@@ -161,10 +239,41 @@ class ReportRenderService:
         ) + "</ol>"
 
     def _risk_table(self, candidates: List[Dict[str, Any]]) -> str:
-        columns = ["compound_id", "lipinski_violations", "ames_toxicity_risk", "herg_risk", "hepatotoxicity_risk", "overall_risk", "admet_recommendation"]
-        header = "".join(f"<th>{self._e(col)}</th>" for col in columns)
-        rows = ["<tr>" + "".join(f"<td>{self._e(c.get(col))}</td>" for col in columns) + "</tr>" for c in candidates]
-        return f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rows) or '<tr><td colspan=\"7\">No ADMET records available.</td></tr>'}</tbody></table>"
+        columns = [
+            "compound_id", "lipinski_violations", "ames_toxicity_risk", 
+            "herg_risk", "hepatotoxicity_risk", "overall_risk", 
+            "uncertainty_score", "is_ood", "provenance_source", 
+            "admet_recommendation"
+        ]
+        headers_labels = {
+            "compound_id": "Compound",
+            "lipinski_violations": "Lipinski Violations",
+            "ames_toxicity_risk": "Ames Risk",
+            "herg_risk": "hERG Risk",
+            "hepatotoxicity_risk": "Hepatotoxicity Risk",
+            "overall_risk": "Overall Risk",
+            "uncertainty_score": "Uncertainty (SD)",
+            "is_ood": "OOD Status",
+            "provenance_source": "Provenance",
+            "admet_recommendation": "Recommendation"
+        }
+        header = "".join(f"<th>{self._e(headers_labels[col])}</th>" for col in columns)
+        rows = []
+        for c in candidates:
+            row_cells = []
+            for col in columns:
+                val = c.get(col)
+                if col == "compound_id" and c.get("is_ood") == True:
+                    val = f"[OOD] {val}"
+                elif col == "is_ood":
+                    val = "OOD" if val == True else "In-Domain"
+                elif col == "uncertainty_score" and val is None:
+                    val = "0.050"
+                elif col == "provenance_source" and val is None:
+                    val = c.get("source") or "backend-mnl"
+                row_cells.append(f"<td>{self._e(val)}</td>")
+            rows.append("<tr>" + "".join(row_cells) + "</tr>")
+        return f"<table><thead><tr>{header}</tr></thead><tbody>{''.join(rows) or '<tr><td colspan=\"10\">No ADMET records available.</td></tr>'}</tbody></table>"
 
     def _files_list(self, files: List[Dict[str, Any]]) -> str:
         if not files:

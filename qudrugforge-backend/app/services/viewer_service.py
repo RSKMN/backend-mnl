@@ -328,6 +328,21 @@ class ViewerService:
                 viewer_format = ext
             metadata = file_meta.get("metadata") or {}
 
+        # Retrieve molecule properties from database
+        molecule_properties = {}
+        if molecule_id:
+            try:
+                molecule = await molecule_repository.get_molecule_by_id(molecule_id)
+                if molecule:
+                    molecule_properties = {
+                        "mw": molecule.get("mw") or molecule.get("molecular_weight"),
+                        "logp": molecule.get("logp"),
+                        "qed": molecule.get("qed"),
+                        "tpsa": molecule.get("tpsa")
+                    }
+            except Exception as e:
+                logger.warning(f"Failed to fetch molecule properties for {molecule_id}: {e}")
+
         return {
             "result_id": result_id,
             "result_type": result_type,
@@ -337,6 +352,12 @@ class ViewerService:
             "molecule_id": molecule_id,
             "target_id": target_id,
             "scores": scores,
+            "molecule_properties": {
+                "mw": molecule_properties.get("mw"),
+                "logp": molecule_properties.get("logp"),
+                "qed": molecule_properties.get("qed"),
+                "tpsa": molecule_properties.get("tpsa")
+            },
             "metadata": metadata
         }
 

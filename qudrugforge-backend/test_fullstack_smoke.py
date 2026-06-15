@@ -22,8 +22,8 @@ def smoke_test():
     if res.status_code != 200:
         # If user already exists, let's try login
         print(f"Register returned status {res.status_code}. Attempting login instead...")
-        res = httpx.post(f"{BASE_URL}/auth/login", data={
-            "username": "smoke_user@example.com",
+        res = httpx.post(f"{BASE_URL}/auth/login", json={
+            "email": "smoke_user@example.com",
             "password": "Password123!"
         })
         if res.status_code != 200:

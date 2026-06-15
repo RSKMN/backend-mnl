@@ -57,13 +57,13 @@ class AuthService:
         member_doc = {
             "workspace_id": workspace["_id"],
             "user_id": user_id,
-            "role": "owner",
+            "role": "admin",
             "status": "active",
             "created_at": now
         }
         await workspace_repository.create_member(member_doc)
         
-        workspace["role"] = "owner"
+        workspace["role"] = "admin"
 
         # Generate tokens
         access_token = create_access_token(subject=str(user_id), email=email)

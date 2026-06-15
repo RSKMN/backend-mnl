@@ -19,10 +19,14 @@ from app.repositories.quantum_result_repository import quantum_result_repository
 from app.repositories.report_repository import report_repository
 from app.repositories.simulation_result_repository import simulation_result_repository
 from app.repositories.target_repository import target_repository
+from app.repositories.project_repository import project_repository
+from app.repositories.workspace_repository import workspace_repository
 from app.services.report_export_service import report_export_service
 from app.services.report_render_service import report_render_service
 from app.storage.service import storage_service
+from app.services.audit_service import audit_service
 from app.utils.datetime import utc_now
+import asyncio
 
 logger = logging.getLogger("qudrugforge-report-generation")
 
@@ -42,6 +46,19 @@ FILENAMES = {
 
 
 class ReportGenerationService:
+
+    async def _check_authorization(self, project_id: str, user_id: str) -> None:
+        project = await project_repository.get_project_by_id(project_id)
+        if not project:
+            raise AppException(status_code=404, code="PROJECT_NOT_FOUND", message="Project not found")
+        workspace_id = str(project["workspace_id"])
+        membership = await workspace_repository.get_membership(workspace_id, user_id)
+        if not membership:
+            raise AppException(status_code=403, code="WORKSPACE_ACCESS_DENIED", message="Not a workspace member")
+        role = membership.get("role", "viewer").upper()
+        if role != "OWNER" and role not in ["ADMIN", "SCIENTIST"]:
+            raise AppException(status_code=403, code="WORKSPACE_ACCESS_DENIED", message="ADMIN or SCIENTIST role required")
+
     async def generate_report(
         self,
         project_id: str,
@@ -74,6 +91,7 @@ class ReportGenerationService:
         generated_files: List[Dict[str, Any]] = []
         try:
             context = await self._collect_context(project_id, report, include_sections, top_n)
+            self._audit_report_content(context, warnings)
             candidate_rows = context["candidate_rows"]
 
             payloads: List[Tuple[str, bytes, Dict[str, Any]]] = []
@@ -147,6 +165,16 @@ class ReportGenerationService:
                     "updated_at": utc_now(),
                     "error_message": None,
                 },
+            )
+
+            asyncio.create_task(
+                audit_service.log_event(
+                    action="REPORT_GENERATED",
+                    user_id=user_id,
+                    workspace_id=str(report["workspace_id"]),
+                    project_id=project_id,
+                    metadata={"report_id": report_id}
+                )
             )
 
             return {
@@ -303,6 +331,44 @@ class ReportGenerationService:
             qua = self._lookup(best_quantum, key_candidates)
             adm = self._lookup(best_admet, key_candidates)
             sim = self._lookup(best_sim, key_candidates)
+            
+            # Collect lineage status, uncertainty, OOD, and provenance source
+            is_cand_stale = any(
+                d.get("stale") == True 
+                for d in (dock, gni, qua, adm, sim) 
+                if isinstance(d, dict)
+            )
+            
+            is_cand_ood = False
+            for d in (dock, gni, qua, adm, sim):
+                if isinstance(d, dict):
+                    app_dom = d.get("applicability_domain") or {}
+                    if app_dom.get("is_ood") == True or app_dom.get("status") == "OOD" or app_dom.get("violation") == True:
+                        is_cand_ood = True
+                        break
+            # Fallback check ADMET overall risk
+            if not is_cand_ood and adm.get("overall_risk") == "high":
+                is_cand_ood = True
+
+            cand_unc_score = None
+            for d in (qua, adm, dock, gni, sim):
+                if isinstance(d, dict) and d.get("uncertainty_score") is not None:
+                    cand_unc_score = d.get("uncertainty_score")
+                    break
+
+            cand_prov_source = None
+            for d in (dock, gni, qua, adm, sim):
+                if isinstance(d, dict):
+                    prov = d.get("provenance")
+                    if prov and isinstance(prov, dict) and prov.get("source"):
+                        cand_prov_source = prov.get("source")
+                        break
+                    elif d.get("source"):
+                        cand_prov_source = d.get("source")
+                        break
+            if not cand_prov_source:
+                cand_prov_source = "backend-mnl"
+
             row = {
                 "compound_id": molecule.get("compound_id"),
                 "molecule_id": str(molecule.get("_id")),
@@ -334,10 +400,91 @@ class ReportGenerationService:
                 "rmsd_avg": self._first(sim, ["rmsd_avg", "avg_rmsd"]),
                 "rmsf_avg": self._first(sim, ["rmsf_avg", "avg_rmsf"]),
                 "stability_score": self._first(sim, ["stability_score", "md_stability_score"]),
+                "stale": is_cand_stale,
+                "is_ood": is_cand_ood,
+                "uncertainty_score": cand_unc_score,
+                "provenance_source": cand_prov_source,
+                "source": cand_prov_source,
             }
             row["final_recommendation"] = self._recommend(row)
             rows.append(row)
         return rows
+
+    def _audit_report_content(self, context: Dict[str, Any], warnings: List[str]) -> None:
+        prohibited_terms = [
+            "validated drug", 
+            "experimentally verified", 
+            "clinically proven", 
+            "clinical efficacy", 
+            "therapeutic guarantee", 
+            "cures disease", 
+            "safe treatment", 
+            "proven efficacy"
+        ]
+        
+        def check_text(obj: Any):
+            if isinstance(obj, str):
+                val = obj.lower()
+                for term in prohibited_terms:
+                    if term in val:
+                        raise AppException(
+                            status_code=400,
+                            code="PROHIBITED_LANGUAGE_DETECTED",
+                            message=f"Prohibited language detected: '{term}' is not allowed in scientific reports."
+                        )
+                if "active inhibitor" in val:
+                    if "predicted" not in val and "hypothesized" not in val:
+                        raise AppException(
+                            status_code=400,
+                            code="PROHIBITED_LANGUAGE_DETECTED",
+                            message="Prohibited language detected: 'active inhibitor' is not allowed without 'predicted' or 'hypothesized' qualifiers."
+                        )
+            elif isinstance(obj, dict):
+                for v in obj.values():
+                    if v is not None:
+                        check_text(v)
+            elif isinstance(obj, (list, tuple, set)):
+                for item in obj:
+                    if item is not None:
+                        check_text(item)
+
+        # Scan report context fields for clinical overclaims
+        if context.get("report"):
+            check_text(context["report"])
+        if context.get("project"):
+            check_text(context["project"])
+        if context.get("candidate_rows"):
+            check_text(context["candidate_rows"])
+
+        # Warnings auditing
+        candidates = context.get("candidate_rows", [])
+        has_stale = False
+        has_imported = False
+        missing_uncertainty = False
+        missing_ood = False
+
+        for cand in candidates:
+            if cand.get("stale"):
+                has_stale = True
+            
+            src = cand.get("provenance_source") or cand.get("source")
+            if src and src != "backend-mnl":
+                has_imported = True
+            
+            if cand.get("uncertainty_score") is None:
+                missing_uncertainty = True
+            
+            if cand.get("is_ood") is None:
+                missing_ood = True
+
+        if has_stale:
+            warnings.append("Report contains stale outputs from outdated parent executions.")
+        if has_imported:
+            warnings.append("Report contains imported data structure assets from external sources.")
+        if missing_uncertainty:
+            warnings.append("Some candidates lack explicit uncertainty metadata.")
+        if missing_ood:
+            warnings.append("Some candidates lack applicability domain context.")
 
     def _best_by_candidate(
         self,

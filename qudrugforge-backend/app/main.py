@@ -1,16 +1,22 @@
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, status
+from fastapi import FastAPI, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.database import connect_to_mongo, close_mongo_connection, ensure_auth_indexes
-from app.core.exceptions import AppException, app_exception_handler, generic_exception_handler, validation_exception_handler
-from fastapi.exceptions import RequestValidationError
+from app.core.exceptions import AppException, app_exception_handler, generic_exception_handler, DomainError, domain_exception_handler
+from app.core.rate_limit import limiter
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from app.core.middleware import SecurityHeadersMiddleware
+from app.core.metrics_middleware import MetricsMiddleware
 from app.api.v1.router import api_v1_router
 from app.api.v1.health import health_check
+from app.api.v1.metrics import router as metrics_router
 
 # 1. Setup python logging formats
 configure_logging()
@@ -47,7 +53,13 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# 4. CORS Setup
+# 4. Middleware & CORS Setup
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(MetricsMiddleware)
+
 origins = settings.cors_origins_list
 logger.info(f"CORS origins configured: {origins}")
 app.add_middleware(
@@ -60,11 +72,12 @@ app.add_middleware(
 
 # 5. Global custom exceptions mapping
 app.add_exception_handler(AppException, app_exception_handler)
-app.add_exception_handler(RequestValidationError, validation_exception_handler)
+app.add_exception_handler(DomainError, domain_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
 # 6. Mount Master Routing V1
 app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
+app.include_router(metrics_router, prefix="/metrics", tags=["Metrics"])
 
 # 7. Root API Entrypoints
 @app.get("/", tags=["General"])
@@ -80,8 +93,8 @@ async def root():
     }
 
 @app.get("/health", tags=["General"])
-async def root_health():
+async def root_health(response: Response):
     """
     Exposes a root-level health indicator mapped to the core health sub-router logic.
     """
-    return await health_check()
+    return await health_check(response)

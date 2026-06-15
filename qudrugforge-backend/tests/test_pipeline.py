@@ -1,9 +1,11 @@
 import pytest
 import asyncio
+from unittest.mock import patch, MagicMock
 from bson import ObjectId
 from app.repositories.pipeline_repository import pipeline_repository
 from app.repositories.experiment_repository import experiment_repository
 from app.utils.datetime import utc_now
+from app.services.pipeline_orchestrator_service import pipeline_orchestrator_service
 
 @pytest.mark.asyncio
 async def test_pipeline_routes_require_auth(async_client, project):
@@ -51,56 +53,95 @@ async def test_successful_pipeline_trigger_and_sequential_run(async_client, auth
         "parameters": {}
     }
 
-    # Trigger pipeline run POST endpoint
-    response = await async_client.post(
-        f"/api/v1/projects/{project_id}/pipeline/run",
-        json=payload,
-        headers=auth_headers
-    )
-    assert response.status_code == 200, response.text
-    data = response.json()["data"]
-    assert data["status"] in ("queued", "running")
-    assert len(data["pipeline"]) == 9
-    assert "target_ranking" in data["stage_statuses"]
-    
-    pipeline_run_id = data["id"]
+    from app.repositories.job_repository import job_repository
+    from app.utils.datetime import utc_now
+    from bson import ObjectId
 
-    # 1. Fetch runs list GET endpoint
-    list_response = await async_client.get(
-        f"/api/v1/projects/{project_id}/pipeline/runs",
-        headers=auth_headers
-    )
-    assert list_response.status_code == 200
-    list_data = list_response.json()["data"]
-    assert list_data["total"] >= 1
-    assert list_data["items"][0]["id"] == pipeline_run_id
+    bg_tasks = []
 
-    # 2. Wait slightly for background sequential execution tasks to run
-    # Since stages in PipelineOrchestratorService use asyncio.sleep(0.5) per stage,
-    # let's wait a moment for at least the first few stages to start/complete.
-    await asyncio.sleep(1.0)
+    async def mock_dispatch_stage_chain_local(self, stage: str, exp_id: str, project_id: str, user_id: str, params: dict, pipeline_run_id: str) -> str:
+        job_doc = {
+            "project_id": ObjectId(project_id),
+            "experiment_id": ObjectId(exp_id),
+            "task_type": f"stage_{stage}",
+            "status": "QUEUED",
+            "progress": 0,
+            "created_at": utc_now()
+        }
+        job = await job_repository.create_job(job_doc)
+        stage_job_id = str(job["_id"])
+        
+        async def run_chain():
+            try:
+                await self.execute_engine_stage_sync(stage, exp_id, project_id, user_id, params, pipeline_run_id, stage_job_id)
+                from app.tasks.imports import _run_import
+                await _run_import(stage_job_id, project_id, user_id, "cancer_proof_v1", exp_id)
+            except Exception as exc:
+                await job_repository.update_job_status(stage_job_id, "FAILED", error_message=str(exc))
 
-    # 3. Retrieve specific pipeline run detail
-    detail_response = await async_client.get(
-        f"/api/v1/projects/{project_id}/pipeline/runs/{pipeline_run_id}",
-        headers=auth_headers
-    )
-    assert detail_response.status_code == 200
-    run_detail = detail_response.json()["data"]
-    
-    # Assert stages have been sequentially executed & statuses updated
-    assert run_detail["stage_statuses"]["target_ranking"]["status"] in ("completed", "running")
-    
-    # Assert experiment documents were created for executed stages
-    target_ranking_exp_id = run_detail["stage_statuses"]["target_ranking"]["experiment_id"]
-    assert target_ranking_exp_id is not None
-    
-    # Check stage experiment linkage fields in database
-    stage_exp = await experiment_repository.get_experiment_by_id(target_ranking_exp_id)
-    assert stage_exp is not None
-    assert str(stage_exp["parent_pipeline_run_id"]) == pipeline_run_id
-    assert "parent_pipeline_run_id" in stage_exp["metadata"]
-    assert str(stage_exp["metadata"]["parent_pipeline_run_id"]) == pipeline_run_id
+        task = asyncio.create_task(run_chain())
+        bg_tasks.append(task)
+        return stage_job_id
+
+    def mock_apply_async(args=None, kwargs=None, **etc):
+        task = asyncio.create_task(pipeline_orchestrator_service.run_pipeline_supervisor(*args))
+        bg_tasks.append(task)
+        return MagicMock()
+
+    with patch("app.tasks.pipeline.run_pipeline_task.apply_async", mock_apply_async), \
+         patch.object(pipeline_orchestrator_service.__class__, "_dispatch_stage_chain", mock_dispatch_stage_chain_local):
+
+        # Trigger pipeline run POST endpoint
+        response = await async_client.post(
+            f"/api/v1/projects/{project_id}/pipeline/run",
+            json=payload,
+            headers=auth_headers
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()["data"]
+        assert data["status"].lower() in ("queued", "running")
+        
+        pipeline_run_id = data["pipeline_run_id"]
+
+        # 1. Fetch runs list GET endpoint
+        list_response = await async_client.get(
+            f"/api/v1/projects/{project_id}/pipeline/runs",
+            headers=auth_headers
+        )
+        assert list_response.status_code == 200
+        list_data = list_response.json()["data"]
+        assert list_data["total"] >= 1
+        assert list_data["items"][0]["id"] == pipeline_run_id
+
+        # 2. Wait slightly for background sequential execution tasks to run
+        await asyncio.sleep(1.0)
+
+        # 3. Retrieve specific pipeline run detail
+        detail_response = await async_client.get(
+            f"/api/v1/projects/{project_id}/pipeline/runs/{pipeline_run_id}",
+            headers=auth_headers
+        )
+        assert detail_response.status_code == 200
+        run_detail = detail_response.json()["data"]
+        
+        # Assert stages have been sequentially executed & statuses updated
+        assert run_detail["stage_statuses"]["target_ranking"]["status"] in ("completed", "running")
+        
+        # Assert experiment documents were created for executed stages
+        target_ranking_exp_id = run_detail["stage_statuses"]["target_ranking"]["experiment_id"]
+        assert target_ranking_exp_id is not None
+        
+        # Check stage experiment linkage fields in database
+        stage_exp = await experiment_repository.get_experiment_by_id(target_ranking_exp_id)
+        assert stage_exp is not None
+        assert str(stage_exp["parent_pipeline_run_id"]) == pipeline_run_id
+        assert "parent_pipeline_run_id" in stage_exp["metadata"]
+        assert str(stage_exp["metadata"]["parent_pipeline_run_id"]) == pipeline_run_id
+
+        # Clean up background tasks
+        for task in bg_tasks:
+            if not task.done():
+                task.cancel()
 
 
 @pytest.mark.asyncio

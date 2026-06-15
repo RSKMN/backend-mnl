@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+from app.schemas.base_result import BaseScientificResult
 
 
 # ─── Binding Site ─────────────────────────────────────────────────────────────
@@ -100,9 +101,8 @@ class DockingRunCreateResponse(BaseModel):
 
 # ─── Docking Result Item ──────────────────────────────────────────────────────
 
-class DockingResultItem(BaseModel):
+class DockingResultItem(BaseScientificResult):
     id: str
-    experiment_id: str
     project_id: str
     workspace_id: str
     molecule_id: Optional[str] = None
@@ -110,7 +110,6 @@ class DockingResultItem(BaseModel):
     compound_id: Optional[str] = None
     smiles: Optional[str] = None
     target_gene: Optional[str] = None
-    engine: Optional[str] = None
     binding_affinity_kcal_mol: Optional[float] = None
     score: Optional[float] = None
     pose_rank: Optional[int] = None
@@ -119,10 +118,8 @@ class DockingResultItem(BaseModel):
     pose_download_url: Optional[str] = None
     interaction_fingerprint: Dict[str, Any] = Field(default_factory=dict)
     status: Optional[str] = None
-    source: Optional[str] = None
     import_batch_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     @classmethod

@@ -21,11 +21,18 @@ class ExperimentRepository:
         await self.collection.create_index("engine")
         await self.collection.create_index("created_at")
         await self.collection.create_index("q_ai_drug_job_id")
+
+        # Phase D: Orchestration indexes
+        await self.collection.create_index("stage_job_id")
+        await self.collection.create_index("parent_stage_job_id")
+        await self.collection.create_index("stale")
+        await self.collection.create_index("pipeline_stage")
         
         # Compound indexes
         await self.collection.create_index([("project_id", pymongo.ASCENDING), ("status", pymongo.ASCENDING)])
         await self.collection.create_index([("project_id", pymongo.ASCENDING), ("type", pymongo.ASCENDING)])
         await self.collection.create_index([("project_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)])
+        await self.collection.create_index([("stage_job_id", pymongo.ASCENDING), ("stale", pymongo.ASCENDING)])
 
     async def create_experiment(self, doc: dict) -> dict:
         result = await self.collection.insert_one(doc)
@@ -74,6 +81,32 @@ class ExperimentRepository:
             {"$set": update_doc}
         )
         return await self.get_experiment_by_id(experiment_id)
+
+    async def update_experiment_fields(self, experiment_id: str, fields: dict) -> Optional[dict]:
+        """
+        Phase D: Atomic partial update used by the stage orchestrator to persist
+        lineage metadata, status transitions, staleness flags, and timing.
+        """
+        if not fields:
+            return await self.get_experiment_by_id(experiment_id)
+        fields.setdefault("updated_at", utc_now())
+        await self.collection.update_one(
+            {"_id": ObjectId(experiment_id)},
+            {"$set": fields}
+        )
+        return await self.get_experiment_by_id(experiment_id)
+
+    async def find_by_stage_job_id(self, stage_job_id: str) -> Optional[dict]:
+        """Phase D: Look up an experiment by its stage_job_id for lineage resolution."""
+        return await self.collection.find_one({"stage_job_id": stage_job_id})
+
+    async def find_stale_by_experiment(self, experiment_id: str) -> list:
+        """Phase D: Return all stale stage experiments linked to a root experiment."""
+        cursor = self.collection.find({
+            "parent_pipeline_run_id": ObjectId(experiment_id),
+            "stale": True
+        })
+        return await cursor.to_list(length=100)
 
     async def update_status_progress(
         self,

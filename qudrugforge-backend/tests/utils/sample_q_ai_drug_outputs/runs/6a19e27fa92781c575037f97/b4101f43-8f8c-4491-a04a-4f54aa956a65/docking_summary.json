@@ -1,0 +1,7 @@
+{
+  "stage": "docking",
+  "project_dir": "E:\\rskmn\\Npersonal\\quinfosys\\drug_discovery_research\\work\\mnl\\backend-mnl\\qudrugforge-backend\\tests\\utils\\sample_q_ai_drug_outputs\\runs\\6a19e27fa92781c575037f97\\b4101f43-8f8c-4491-a04a-4f54aa956a65",
+  "docking_rows": 6,
+  "docking_mode": "proxy_fallback",
+  "error_caught": "Real docking produced no completed candidates. See E:\\rskmn\\Npersonal\\quinfosys\\drug_discovery_research\\work\\mnl\\backend-mnl\\qudrugforge-backend\\tests\\utils\\sample_q_ai_drug_outputs\\runs\\6a19e27fa92781c575037f97\\b4101f43-8f8c-4491-a04a-4f54aa956a65\\failed.csv"
+}

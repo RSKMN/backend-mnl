@@ -6,6 +6,7 @@ No file generation in this phase — data model only.
 from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
+from app.schemas.base_result import BaseScientificResult
 
 # ---------------------------------------------------------------------------
 # Enums / Literals (kept as plain strings to avoid import cycles)
@@ -130,15 +131,12 @@ class ReportMetadata(BaseModel):
 # Response Schemas
 # ---------------------------------------------------------------------------
 
-class ReportResponse(BaseModel):
+class ReportResponse(BaseScientificResult):
     report_id: str
     workspace_id: str
     project_id: str
-    experiment_id: Optional[str] = None
     title: str
     report_type: str
-    status: str
-    source: str
     source_module: str
     candidate_molecule_ids: List[str] = Field(default_factory=list)
     target_ids: List[str] = Field(default_factory=list)
@@ -148,36 +146,39 @@ class ReportResponse(BaseModel):
     primary_file_id: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_by: Optional[str] = None
-    created_at: datetime
     updated_at: datetime
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
 
     @classmethod
     def from_mongo(cls, doc: dict) -> "ReportResponse":
-        return cls(
-            report_id=str(doc.get("report_id", "")),
-            workspace_id=str(doc.get("workspace_id", "")),
-            project_id=str(doc.get("project_id", "")),
-            experiment_id=str(doc["experiment_id"]) if doc.get("experiment_id") else None,
-            title=doc.get("title", ""),
-            report_type=doc.get("report_type", "custom"),
-            status=doc.get("status", "draft"),
-            source=doc.get("source", "qudrugforge"),
-            source_module=doc.get("source_module", "reports"),
-            candidate_molecule_ids=doc.get("candidate_molecule_ids", []),
-            target_ids=doc.get("target_ids", []),
-            experiment_ids=doc.get("experiment_ids", []),
-            sections=doc.get("sections", []),
-            file_ids=doc.get("file_ids", []),
-            primary_file_id=doc.get("primary_file_id"),
-            metadata=doc.get("metadata", {}),
-            created_by=str(doc["created_by"]) if doc.get("created_by") else None,
-            created_at=doc.get("created_at") or datetime.utcnow(),
-            updated_at=doc.get("updated_at") or datetime.utcnow(),
-            completed_at=doc.get("completed_at"),
-            error_message=doc.get("error_message"),
-        )
+        data = dict(doc)
+        data["report_id"] = str(data.get("report_id", ""))
+        data["workspace_id"] = str(data.get("workspace_id", ""))
+        data["project_id"] = str(data.get("project_id", ""))
+        if data.get("experiment_id"):
+            data["experiment_id"] = str(data["experiment_id"])
+            
+        data["title"] = data.get("title", "")
+        data["report_type"] = data.get("report_type", "custom")
+        data["source"] = data.get("source", "qudrugforge")
+        data["source_module"] = data.get("source_module", "reports")
+        data["candidate_molecule_ids"] = data.get("candidate_molecule_ids", [])
+        data["target_ids"] = data.get("target_ids", [])
+        data["experiment_ids"] = data.get("experiment_ids", [])
+        data["sections"] = data.get("sections", [])
+        data["file_ids"] = data.get("file_ids", [])
+        data["primary_file_id"] = data.get("primary_file_id")
+        data["metadata"] = data.get("metadata", {})
+        if data.get("created_by"):
+            data["created_by"] = str(data["created_by"])
+        
+        data["created_at"] = data.get("created_at") or datetime.utcnow()
+        data["updated_at"] = data.get("updated_at") or datetime.utcnow()
+        data["completed_at"] = data.get("completed_at")
+        data["error_message"] = data.get("error_message")
+
+        return cls(**{k: v for k, v in data.items() if k in cls.model_fields})
 
 
 class ReportSummaryResponse(BaseModel):

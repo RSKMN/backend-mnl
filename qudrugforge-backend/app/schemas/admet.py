@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.schemas.base_result import BaseScientificResult
 
 
 ALLOWED_SOURCE_MOLECULE_SETS = {"filtered", "top_candidates", "selected"}
@@ -64,9 +65,8 @@ class AdmetRunCreateResponse(BaseModel):
     models: List[str]
 
 
-class AdmetResultResponse(BaseModel):
+class AdmetResultResponse(BaseScientificResult):
     id: str
-    experiment_id: str
     project_id: str
     workspace_id: str
     molecule_id: Optional[str] = None
@@ -90,7 +90,6 @@ class AdmetResultResponse(BaseModel):
     badges: List[Dict[str, Any]] = Field(default_factory=list)
     table_row: Dict[str, Any] = Field(default_factory=dict)
     ui: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     @classmethod

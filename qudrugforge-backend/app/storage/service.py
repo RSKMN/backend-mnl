@@ -20,6 +20,10 @@ class StorageService:
         if provider_name == "local":
             logger.info("Initializing 'local' filesystem storage engine.")
             return LocalStorageProvider()
+        elif provider_name == "gcs":
+            logger.info("Initializing 'gcs' cloud storage engine.")
+            from app.storage.gcs import GCSStorageProvider
+            return GCSStorageProvider()
         else:
             # Multi-cloud driver registrations (S3, R2, Azure) will register here.
             logger.warning(

@@ -73,7 +73,7 @@ class ReportService:
     # Access control helpers
     # ------------------------------------------------------------------
 
-    async def _get_project_checked(self, project_id: str, user_id: str) -> dict:
+    async def _get_project_checked(self, project_id: str, user_id: str, allowed_roles: List[str] = None) -> dict:
         project = await project_repository.get_project_by_id(project_id)
         if not project:
             raise AppException(
@@ -89,6 +89,16 @@ class ReportService:
                 code="WORKSPACE_ACCESS_DENIED",
                 message="User is not an active member of this workspace",
             )
+            
+        if allowed_roles:
+            role = membership.get("role", "viewer").upper()
+            if role != "OWNER" and role not in allowed_roles:
+                raise AppException(
+                    status_code=403,
+                    code="WORKSPACE_ACCESS_DENIED",
+                    message=f"Insufficient permissions. Required one of roles: {allowed_roles}"
+                )
+                
         return project
 
     # ------------------------------------------------------------------
@@ -177,9 +187,9 @@ class ReportService:
         candidate_molecule_ids: List[str],
         target_ids: List[str],
         experiment_ids: List[str],
-        sections_requested: List[str],
+        sections_requested: Optional[List[str]] = None,
     ) -> dict:
-        project = await self._get_project_checked(project_id, user_id)
+        project = await self._get_project_checked(project_id, user_id, allowed_roles=["ADMIN", "SCIENTIST"])
         workspace_id = str(project["workspace_id"])
 
         if report_type not in (
@@ -210,7 +220,7 @@ class ReportService:
                 validated_target_ids.append(t_id)
 
         sections, avail, counts = await self._build_section_availability(
-            project_id, sections_requested
+            project_id, sections_requested or []
         )
 
         now = utc_now()
@@ -282,7 +292,7 @@ class ReportService:
     async def get_report(
         self, project_id: str, report_id: str, user_id: str
     ) -> dict:
-        await self._get_project_checked(project_id, user_id)
+        await self._get_project_checked(project_id, user_id, allowed_roles=["ADMIN", "SCIENTIST"])
         report = await report_repository.get_by_report_id(report_id)
         if not report or str(report.get("project_id")) != project_id:
             raise AppException(
@@ -639,8 +649,10 @@ class ReportService:
             "project_id": project_id,
             "total_reports": total,
             "completed_reports": status_counts.get("completed", 0),
+            "available_reports": status_counts.get("available", 0),
             "draft_reports": status_counts.get("draft", 0),
             "imported_reports": status_counts.get("imported", 0),
+            "queued_reports": status_counts.get("queued", 0),
             "failed_reports": status_counts.get("failed", 0),
             "available_sections": avail,
         }

@@ -3,6 +3,12 @@ import io
 from typing import Any, Dict, List, Tuple
 
 
+DISCLAIMER = (
+    "Computational decision-support only. This report is not clinical or medical advice "
+    "and does not establish safety, efficacy, or suitability for human use."
+)
+
+
 CSV_COLUMNS = [
     "compound_id",
     "molecule_id",
@@ -33,6 +39,10 @@ CSV_COLUMNS = [
     "rmsf_avg",
     "stability_score",
     "final_recommendation",
+    "provenance_source",
+    "stale",
+    "uncertainty_score",
+    "is_ood",
 ]
 
 
@@ -42,8 +52,19 @@ class ReportExportService:
         writer = csv.DictWriter(buffer, fieldnames=CSV_COLUMNS, extrasaction="ignore")
         writer.writeheader()
         for row in candidate_rows:
-            writer.writerow({column: self._stringify(row.get(column)) for column in CSV_COLUMNS})
+            row_data = dict(row)
+            is_ood = row_data.get("is_ood") == True or row_data.get("overall_risk") == "high"
+            if is_ood:
+                if row_data.get("compound_id"):
+                    row_data["compound_id"] = f"[OOD] {row_data['compound_id']}"
+                if row_data.get("molecule_id"):
+                    row_data["molecule_id"] = f"[OOD] {row_data['molecule_id']}"
+            writer.writerow({column: self._stringify(row_data.get(column)) for column in CSV_COLUMNS})
+        
+        # Add scientific wet-lab disclaimer as a footer
+        buffer.write(f"\n# DISCLAIMER: {DISCLAIMER}\n")
         return buffer.getvalue().encode("utf-8")
+
 
     def render_sdf(self, candidate_rows: List[Dict[str, Any]]) -> Tuple[bytes, str, List[str]]:
         rows_with_smiles = [row for row in candidate_rows if row.get("smiles")]

@@ -18,6 +18,7 @@ os.environ["Q_AI_DRUG_OUTPUT_ROOT"] = os.path.join(os.path.dirname(os.path.abspa
 os.environ["Q_AI_DRUG_IMPORT_ALLOW_ABSOLUTE_PATHS"] = "true"
 os.environ["ENABLE_DEV_JOB_SIMULATION"] = "true"
 os.environ["JOB_SIMULATION_STEP_SECONDS"] = "0"
+os.environ["TESTING_POLL_INTERVAL"] = "0.05"
 
 # Import our custom in-memory MongoDB/Motor emulator
 from tests.utils.mock_db import MockDatabase
@@ -33,7 +34,10 @@ app.core.database.close_mongo_connection = AsyncMock()
 from app.core.config import settings
 from app.core.database import ensure_auth_indexes
 from app.main import app
+from app.core.rate_limit import limiter
 from httpx import AsyncClient, ASGITransport
+
+limiter.enabled = False
 
 @pytest.fixture(scope="session")
 def event_loop():

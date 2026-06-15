@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
+from app.schemas.base_result import BaseScientificResult
 
 
 ALLOWED_QUANTUM_METHODS = {
@@ -52,9 +53,8 @@ class QuantumRunCreateResponse(BaseModel):
     source_experiment_type: str
 
 
-class QuantumResultItem(BaseModel):
+class QuantumResultItem(BaseScientificResult):
     id: str
-    experiment_id: str
     project_id: str
     workspace_id: str
     molecule_id: Optional[str] = None
@@ -77,7 +77,6 @@ class QuantumResultItem(BaseModel):
     source_file_ids: List[str] = Field(default_factory=list)
     raw: Dict[str, Any] = Field(default_factory=dict)
     metadata: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     @classmethod

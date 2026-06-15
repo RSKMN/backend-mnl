@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+from app.schemas.base_result import BaseScientificResult
 
 from app.utils.simulation_stability import build_simulation_result_payload, build_simulation_trajectory_payload
 
@@ -71,9 +72,8 @@ class SimulationRunCreateResponse(BaseModel):
     source_experiment_type: Optional[str] = None
 
 
-class SimulationResultResponse(BaseModel):
+class SimulationResultResponse(BaseScientificResult):
     id: str
-    experiment_id: str
     project_id: str
     workspace_id: str
     compound_id: Optional[str] = None
@@ -92,7 +92,6 @@ class SimulationResultResponse(BaseModel):
     status: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     raw: Dict[str, Any] = Field(default_factory=dict)
-    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
     @classmethod

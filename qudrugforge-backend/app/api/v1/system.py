@@ -1,7 +1,23 @@
 from fastapi import APIRouter
 from app.core.config import settings
+from app.core.database import mongodb_client
+from fastapi.responses import JSONResponse
 
 router = APIRouter()
+
+@router.get("/health", tags=["System"])
+async def health_check():
+    health_status = {"status": "success", "mongodb": "disconnected"}
+    if mongodb_client is not None:
+        try:
+            await mongodb_client.admin.command("ping")
+            health_status["mongodb"] = "connected"
+        except Exception as e:
+            health_status["mongodb"] = f"error: {str(e)}"
+            return JSONResponse(status_code=503, content=health_status)
+    else:
+        return JSONResponse(status_code=503, content=health_status)
+    return health_status
 
 @router.get("/system/info", tags=["System"])
 async def system_info():

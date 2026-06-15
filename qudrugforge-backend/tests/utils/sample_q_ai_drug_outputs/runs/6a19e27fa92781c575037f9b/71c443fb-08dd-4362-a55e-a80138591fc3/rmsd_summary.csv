@@ -1,0 +1,10 @@
+target_id,candidate_id,checkpoint_label,trajectory_ps,rmsd,md_mode,md_is_real
+EGFR,EGFR_CAND_00001,early,0.01,0.365,openmm_ligand_pose_relaxation,True
+EGFR,EGFR_CAND_00001,mid,0.01,0.363,openmm_ligand_pose_relaxation,True
+EGFR,EGFR_CAND_00001,final,0.01,0.363,openmm_ligand_pose_relaxation,True
+PARP1,PARP1_CAND_00001,early,0.01,0.365,openmm_ligand_pose_relaxation,True
+PARP1,PARP1_CAND_00001,mid,0.01,0.367,openmm_ligand_pose_relaxation,True
+PARP1,PARP1_CAND_00001,final,0.01,0.369,openmm_ligand_pose_relaxation,True
+PIK3CA,PIK3CA_CAND_00001,early,0.01,0.365,openmm_ligand_pose_relaxation,True
+PIK3CA,PIK3CA_CAND_00001,mid,0.01,0.365,openmm_ligand_pose_relaxation,True
+PIK3CA,PIK3CA_CAND_00001,final,0.01,0.366,openmm_ligand_pose_relaxation,True

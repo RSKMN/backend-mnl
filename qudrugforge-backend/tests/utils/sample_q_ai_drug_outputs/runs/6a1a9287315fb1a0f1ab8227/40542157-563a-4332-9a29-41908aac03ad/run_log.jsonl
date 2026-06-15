@@ -1,0 +1,13 @@
+{"time": "2026-05-30T13:02:27", "event": "started_candidate", "target_id": "EGFR", "candidate_id": "EGFR_CAND_00001", "index": 1, "total": 6}
+{"time": "2026-05-30T13:02:27", "event": "failed", "target_id": "EGFR", "candidate_id": "EGFR_CAND_00001", "error": "[Errno 2] No such file or directory: 'data\\\\structures\\\\EGFR_alphafold.pdb'"}
+{"time": "2026-05-30T13:02:27", "event": "started_candidate", "target_id": "EGFR", "candidate_id": "EGFR_CAND_00002", "index": 2, "total": 6}
+{"time": "2026-05-30T13:02:27", "event": "failed", "target_id": "EGFR", "candidate_id": "EGFR_CAND_00002", "error": "[Errno 2] No such file or directory: 'data\\\\structures\\\\EGFR_alphafold.pdb'"}
+{"time": "2026-05-30T13:02:27", "event": "started_candidate", "target_id": "PARP1", "candidate_id": "PARP1_CAND_00001", "index": 3, "total": 6}
+{"time": "2026-05-30T13:02:27", "event": "failed", "target_id": "PARP1", "candidate_id": "PARP1_CAND_00001", "error": "[Errno 2] No such file or directory: 'data\\\\structures\\\\PARP1_alphafold.pdb'"}
+{"time": "2026-05-30T13:02:27", "event": "started_candidate", "target_id": "PARP1", "candidate_id": "PARP1_CAND_00002", "index": 4, "total": 6}
+{"time": "2026-05-30T13:02:27", "event": "failed", "target_id": "PARP1", "candidate_id": "PARP1_CAND_00002", "error": "[Errno 2] No such file or directory: 'data\\\\structures\\\\PARP1_alphafold.pdb'"}
+{"time": "2026-05-30T13:02:27", "event": "started_candidate", "target_id": "PIK3CA", "candidate_id": "PIK3CA_CAND_00001", "index": 5, "total": 6}
+{"time": "2026-05-30T13:02:27", "event": "failed", "target_id": "PIK3CA", "candidate_id": "PIK3CA_CAND_00001", "error": "[Errno 2] No such file or directory: 'data\\\\structures\\\\PIK3CA_alphafold.pdb'"}
+{"time": "2026-05-30T13:02:27", "event": "started_candidate", "target_id": "PIK3CA", "candidate_id": "PIK3CA_CAND_00002", "index": 6, "total": 6}
+{"time": "2026-05-30T13:02:27", "event": "failed", "target_id": "PIK3CA", "candidate_id": "PIK3CA_CAND_00002", "error": "[Errno 2] No such file or directory: 'data\\\\structures\\\\PIK3CA_alphafold.pdb'"}
+{"time": "2026-05-30T13:02:27", "event": "completed_with_failures", "failed": 6, "completed": 0}

@@ -1,18 +1,24 @@
-from fastapi import APIRouter, Depends, Body
-from app.schemas.auth import RegisterRequest, LoginRequest, RefreshRequest, AuthResponse, MeResponse
+from fastapi import APIRouter, Depends, Body, Request
+from fastapi.security import HTTPAuthorizationCredentials
+from app.schemas.auth import RegisterRequest, LoginRequest, RefreshRequest, LogoutRequest, AuthResponse, MeResponse
 from app.services.auth_service import auth_service
+from app.services.audit_service import audit_service
 from app.services.workspace_service import workspace_service
-from app.core.dependencies import get_current_active_user
+from app.core.dependencies import get_current_active_user, security
 from app.schemas.user import UserResponse
 from app.schemas.workspace import WorkspaceResponse
-from app.core.security import decode_token, create_access_token, create_refresh_token
+from app.core.security import decode_token, create_access_token, create_refresh_token, revoke_token
 from app.core.exceptions import AppException
+from app.core.rate_limit import limiter
+from fastapi import Request
+from app.core.config import settings
 
 router = APIRouter(tags=["Auth"])
 
 @router.post("/register")
-async def register(request: RegisterRequest = Body(...)):
-    result = await auth_service.register(request)
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def register(request: Request, body: RegisterRequest = Body(...)):
+    result = await auth_service.register(body)
     return {
         "success": True,
         "data": {
@@ -26,8 +32,9 @@ async def register(request: RegisterRequest = Body(...)):
     }
 
 @router.post("/login")
-async def login(request: LoginRequest = Body(...)):
-    result = await auth_service.login(request)
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def login(request: Request, body: LoginRequest = Body(...)):
+    result = await auth_service.login(body)
     data = {
         "access_token": result["access_token"],
         "refresh_token": result["refresh_token"],
@@ -37,6 +44,15 @@ async def login(request: LoginRequest = Body(...)):
     if "workspace" in result:
         data["workspace"] = WorkspaceResponse.from_mongo(result["workspace"], result["workspace"]["role"]).model_dump()
         
+    import asyncio
+    asyncio.create_task(
+        audit_service.log_event(
+            action="LOGIN",
+            user_id=str(result["user"]["_id"]),
+            metadata={"email": body.email}
+        )
+    )
+
     return {
         "success": True,
         "data": data,
@@ -44,12 +60,18 @@ async def login(request: LoginRequest = Body(...)):
     }
 
 @router.post("/refresh")
-async def refresh(request: RefreshRequest = Body(...)):
+@limiter.limit(settings.RATE_LIMIT_AUTH)
+async def refresh(request: Request, body: RefreshRequest = Body(...)):
     try:
-        payload = decode_token(request.refresh_token)
+        payload = decode_token(body.refresh_token)
         if payload.get("type") != "refresh":
             raise AppException(status_code=401, code="UNAUTHORIZED", message="Invalid token type")
         
+        jti = payload.get("jti")
+        from app.core.security import is_token_revoked
+        if jti and is_token_revoked(jti):
+            raise AppException(status_code=401, code="UNAUTHORIZED", message="Token has been revoked")
+            
         user_id = payload.get("sub")
         
         access_token = create_access_token(subject=user_id, email=payload.get("email", ""))
@@ -68,7 +90,40 @@ async def refresh(request: RefreshRequest = Body(...)):
         raise AppException(status_code=401, code="UNAUTHORIZED", message="Invalid refresh token")
 
 @router.post("/logout")
-async def logout():
+async def logout(
+    request: LogoutRequest = Body(default=LogoutRequest()),
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    try:
+        access_payload = decode_token(credentials.credentials)
+        if access_payload.get("jti"):
+            revoke_token(access_payload["jti"], access_payload["exp"])
+    except Exception:
+        pass  # If access token is invalid, ignore
+        
+    if request.refresh_token:
+        try:
+            refresh_payload = decode_token(request.refresh_token)
+            if refresh_payload.get("jti"):
+                revoke_token(refresh_payload["jti"], refresh_payload["exp"])
+        except Exception:
+            pass  # If refresh token is invalid, ignore
+
+    user_id = None
+    try:
+        user_id = decode_token(credentials.credentials).get("sub")
+    except Exception:
+        pass
+        
+    if user_id:
+        import asyncio
+        asyncio.create_task(
+            audit_service.log_event(
+                action="LOGOUT",
+                user_id=user_id
+            )
+        )
+
     return {
         "success": True,
         "data": {},

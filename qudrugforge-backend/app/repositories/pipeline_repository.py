@@ -70,14 +70,14 @@ class PipelineRepository:
         stage_status_doc: dict
     ) -> Optional[dict]:
         # Form dynamic path update key: stage_statuses.stage_name
-        update_key = f"stage_statuses.{stage}"
+        set_dict = {
+            f"stage_statuses.{stage}.{key}": val for key, val in stage_status_doc.items()
+        }
+        set_dict["updated_at"] = utc_now()
         await self.collection.update_one(
             {"_id": ObjectId(pipeline_run_id)},
             {
-                "$set": {
-                    update_key: stage_status_doc,
-                    "updated_at": utc_now()
-                }
+                "$set": set_dict
             }
         )
         return await self.get_pipeline_run_by_id(pipeline_run_id)

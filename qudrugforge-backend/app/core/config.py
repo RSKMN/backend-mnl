@@ -1,5 +1,5 @@
 from typing import List
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     LOCAL_STORAGE_ROOT: str = Field(default="./storage")
     STORAGE_PROVIDER: str = Field(default="local")
     MAX_UPLOAD_SIZE_MB: int = Field(default=200)
+    GCS_BUCKET_NAME: str = Field(default="qudrugforge-staging-bucket")
+    GCP_PROJECT_ID: str = Field(default="qudrugforge-staging-project")
 
 
     # Authentication Options
@@ -50,6 +52,19 @@ class Settings(BaseSettings):
     # Phase 20.2: Q-AI-Drug Execution Mode (http, command, hybrid)
     Q_AI_DRUG_EXECUTION_MODE: str = Field(default="hybrid")
 
+    # Testing options (Phase 4D Hardening)
+    TESTING_POLL_INTERVAL: float = Field(default=5.0)
+
+    # Celery & Redis Queue Infrastructure (Phase 4C1)
+    REDIS_URL: str = Field(default="redis://localhost:6379/0")
+    CELERY_BROKER_URL: str = Field(default="redis://localhost:6379/0")
+    CELERY_RESULT_BACKEND: str = Field(default="redis://localhost:6379/0")
+
+    # Phase 7B: SaaS Hardening
+    MAX_ACTIVE_JOBS_PER_USER: int = Field(default=2)
+    RATE_LIMIT_GLOBAL: str = Field(default="100/minute")
+    RATE_LIMIT_AUTH: str = Field(default="5/minute")
+    RATE_LIMIT_PIPELINE: str = Field(default="10/minute")
 
     @property
     def cors_origins_list(self) -> List[str]:
@@ -57,6 +72,12 @@ class Settings(BaseSettings):
         if not self.CORS_ORIGINS:
             return []
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @model_validator(mode="after")
+    def force_production_safety(self) -> "Settings":
+        if self.APP_ENV == "production":
+            object.__setattr__(self, "ENABLE_DEV_JOB_SIMULATION", False)
+        return self
 
     # Pydantic v2 modern model configuration block
     model_config = SettingsConfigDict(

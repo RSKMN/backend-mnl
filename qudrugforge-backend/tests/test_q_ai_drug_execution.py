@@ -10,6 +10,17 @@ from app.integrations.q_ai_drug_execution import (
     QAiDrugExecutorError
 )
 from app.core.config import settings
+from app.schemas.orchestration import StageDispatchRequest, StageSource
+
+def create_mock_dispatch_request(stage: str) -> StageDispatchRequest:
+    return StageDispatchRequest(
+        experiment_id="test_exp_id",
+        stage_job_id="test_stage_job_id",
+        pipeline_stage=stage,
+        engine="test_engine",
+        parameters={},
+        source=StageSource.live_compute
+    )
 
 @pytest.mark.asyncio
 async def test_http_executor_check_availability_online():
@@ -38,14 +49,14 @@ async def test_http_executor_success_normalization():
         "logs": [{"message": "Running grid rescoring..."}, "Stage finished."]
     }
 
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-        mock_get.return_value = mock_resp
-        res = await executor.execute_stage("target_ranking", {})
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = await executor.execute_stage(create_mock_dispatch_request("target_ranking"), "outputs/cancer_proof_v1")
         assert res["success"] is True
         assert res["stage"] == "target_ranking"
         assert res["status"] == "completed"
-        assert "outputs/cancer_proof_v1" in res["output_dir"]
-        assert len(res["artifacts_detected"]) == 1
+        assert "outputs/cancer_proof_v1" in res["output_dir"].replace("\\", "/")
+        assert len(res["artifacts_detected"]) > 0
         assert "Stage finished." in res["logs"]
 
 @pytest.mark.asyncio
@@ -54,15 +65,15 @@ async def test_http_executor_timeout_retry_handling():
     # Force minimal backoff wait to keep tests ultra-fast
     executor.max_retries = 2
     
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get, \
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post, \
          patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
-        mock_get.side_effect = httpx.TimeoutException("Request timed out")
+        mock_post.side_effect = httpx.TimeoutException("Request timed out")
         
         with pytest.raises(QAiDrugExecutorError) as exc_info:
-            await executor.execute_stage("target_ranking", {})
+            await executor.execute_stage(create_mock_dispatch_request("target_ranking"), "outputs/cancer_proof_v1")
             
         assert "timed out" in str(exc_info.value)
-        assert mock_get.call_count == 2
+        assert mock_post.call_count == 2
         assert mock_sleep.call_count == 1
 
 @pytest.mark.asyncio
@@ -73,9 +84,9 @@ async def test_http_executor_malformed_response_handling():
     mock_resp.json.side_effect = ValueError("Not JSON")
     mock_resp.text = "Raw debug trace output"
 
-    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
-        mock_get.return_value = mock_resp
-        res = await executor.execute_stage("quantum", {})
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
+        mock_post.return_value = mock_resp
+        res = await executor.execute_stage(create_mock_dispatch_request("quantum"), "outputs/cancer_proof_v1")
         assert res["success"] is True
         assert res["status"] == "completed"
         assert res["output_dir"] is not None
@@ -83,11 +94,11 @@ async def test_http_executor_malformed_response_handling():
 @pytest.mark.asyncio
 async def test_command_executor_subprocess_execution():
     executor = QAiDrugCommandExecutor()
-    res = await executor.execute_stage("simulation", {})
+    res = await executor.execute_stage(create_mock_dispatch_request("simulation"), "outputs/cancer_proof_v1")
     assert res["success"] is True
     assert res["stage"] == "simulation"
     assert res["status"] == "completed"
-    assert "Q-AI-Drug CLI compiler validation successful." in res["logs"]
+    assert any("simulation" in log for log in res["logs"])
 
 @pytest.mark.asyncio
 async def test_execution_service_unavailable_throws_in_strict_http():
@@ -96,7 +107,7 @@ async def test_execution_service_unavailable_throws_in_strict_http():
         mock_avail.return_value = False
         
         with pytest.raises(AppException) as exc_info:
-            await q_ai_drug_execution_service.execute_stage("admet", {})
+            await q_ai_drug_execution_service.execute_stage(create_mock_dispatch_request("admet"))
             
         assert exc_info.value.code == "Q_AI_DRUG_UNAVAILABLE"
         assert exc_info.value.status_code == 503
@@ -113,7 +124,7 @@ async def test_execution_service_hybrid_fallback_flows():
         mock_http_exec.side_effect = QAiDrugExecutorError("API trigger offline")
         mock_cmd_exec.return_value = {"success": True, "stage": "gnina", "status": "completed", "logs": ["Command run succeeded"]}
 
-        res = await q_ai_drug_execution_service.execute_stage("gnina", {})
+        res = await q_ai_drug_execution_service.execute_stage(create_mock_dispatch_request("gnina"))
         assert res["success"] is True
         assert mock_cmd_exec.call_count == 1
         assert "Command run succeeded" in res["logs"]

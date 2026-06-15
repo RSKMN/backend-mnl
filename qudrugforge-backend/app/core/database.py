@@ -120,12 +120,14 @@ async def ensure_auth_indexes():
         from app.repositories.target_repository import target_repository
         from app.repositories.molecule_repository import molecule_repository
         from app.repositories.report_repository import report_repository
+        from app.repositories.job_repository import job_repository
         await target_repository.ensure_indexes()
         await molecule_repository.ensure_indexes()
         await report_repository.ensure_indexes()
+        await job_repository.ensure_indexes()
 
         logger.info(
-            "Auth, project, project input, files, targets, molecules, and reports indexes ensured."
+            "Auth, project, project input, files, targets, molecules, reports, and jobs indexes ensured."
         )
     except Exception as e:
         logger.error(f"Failed to ensure database indexes: {e}")

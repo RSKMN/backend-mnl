@@ -69,8 +69,9 @@ def doc_matches(doc, query):
         if isinstance(value, dict):
             if "$in" in value:
                 choices = value["$in"]
-                if doc_val not in choices and not any(isinstance(doc_val, list) and x in choices for x in doc_val):
-                    return False
+                if doc_val not in choices:
+                    if not isinstance(doc_val, list) or not any(x in choices for x in doc_val):
+                        return False
             elif "$nin" in value:
                 if doc_val in value["$nin"]:
                     return False

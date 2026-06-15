@@ -24,7 +24,9 @@ No file generation in Phase 16A.
 import logging
 from typing import Optional
 from bson import ObjectId
-from fastapi import APIRouter, Depends, Body, Path, Query
+from fastapi import APIRouter, Depends, Body, Path, Query, Request
+from app.core.rate_limit import limiter
+from app.core.config import settings
 
 from app.schemas.report import (
     CandidateDossierGenerateRequest,
@@ -132,9 +134,11 @@ async def import_q_ai_drug_report(
 
 
 @router.post("/generate-project-summary")
+@limiter.limit(settings.RATE_LIMIT_PIPELINE)
 async def generate_project_summary(
+    request: Request,
     project_id: str = Path(...),
-    request: ProjectSummaryGenerateRequest = Body(...),
+    body: ProjectSummaryGenerateRequest = Body(...),
     current_user: dict = Depends(get_current_active_user),
 ):
     """
@@ -144,17 +148,19 @@ async def generate_project_summary(
     result = await report_generation_service.create_and_generate_project_summary(
         project_id=project_id,
         user_id=user_id,
-        title=request.title,
-        formats=request.formats,
-        top_n=request.top_n,
+        title=body.title,
+        formats=body.formats,
+        top_n=body.top_n,
     )
     return _generation_response(result, "Project summary report generated successfully")
 
 
 @router.post("/generate-candidate-dossier")
+@limiter.limit(settings.RATE_LIMIT_PIPELINE)
 async def generate_candidate_dossier(
+    request: Request,
     project_id: str = Path(...),
-    request: CandidateDossierGenerateRequest = Body(...),
+    body: CandidateDossierGenerateRequest = Body(...),
     current_user: dict = Depends(get_current_active_user),
 ):
     """
@@ -164,10 +170,10 @@ async def generate_candidate_dossier(
     result = await report_generation_service.create_and_generate_candidate_dossier(
         project_id=project_id,
         user_id=user_id,
-        title=request.title,
-        candidate_molecule_ids=request.candidate_molecule_ids,
-        formats=request.formats,
-        top_n=request.top_n,
+        title=body.title,
+        candidate_molecule_ids=body.candidate_molecule_ids,
+        formats=body.formats,
+        top_n=body.top_n,
     )
     return _generation_response(result, "Candidate dossier report generated successfully")
 
@@ -311,10 +317,12 @@ async def delete_report(
 
 
 @router.post("/{report_id}/generate")
+@limiter.limit(settings.RATE_LIMIT_PIPELINE)
 async def generate_report(
+    request: Request,
     project_id: str = Path(...),
     report_id: str = Path(...),
-    request: ReportGenerateRequest = Body(...),
+    body: ReportGenerateRequest = Body(...),
     current_user: dict = Depends(get_current_active_user),
 ):
     """
@@ -326,15 +334,17 @@ async def generate_report(
         project_id=project_id,
         report_id=report_id,
         user_id=user_id,
-        formats=request.formats,
-        include_sections=request.include_sections,
-        top_n=request.top_n,
+        formats=body.formats,
+        include_sections=body.include_sections,
+        top_n=body.top_n,
     )
     return _generation_response(result, "Report generated successfully")
 
 
 @router.post("/{report_id}/queue-generation")
+@limiter.limit(settings.RATE_LIMIT_PIPELINE)
 async def queue_generation(
+    request: Request,
     project_id: str = Path(...),
     report_id: str = Path(...),
     current_user: dict = Depends(get_current_active_user),

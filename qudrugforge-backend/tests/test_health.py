@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import patch, MagicMock
 
 @pytest.mark.asyncio
 async def test_root_endpoint(async_client):
@@ -10,19 +11,32 @@ async def test_root_endpoint(async_client):
     assert data["status"] == "running"
 
 @pytest.mark.asyncio
-async def test_health_endpoints(async_client):
-    # Test root health
-    res_root = await async_client.get("/health")
-    assert res_root.status_code == 200
-    data_root = res_root.json()
-    assert data_root["status"] == "ok"
-    assert data_root["database"] == "connected"
-    assert data_root["storage"] == "local"
+@patch("app.api.v1.health.redis.Redis.from_url")
+@patch("app.core.celery_app.celery_app.control.inspect")
+async def test_health_endpoints_degraded(mock_inspect, mock_redis, async_client):
+    """
+    Test Phase 7B Expanded Health Check:
+    Healthy Mongo, Healthy Redis, 0 Workers -> degraded, HTTP 200
+    """
+    # Mock Redis ping success
+    mock_redis_instance = MagicMock()
+    mock_redis_instance.ping.return_value = True
+    mock_redis.return_value = mock_redis_instance
 
-    # Test api/v1/health health
+    # Mock Celery 0 workers active
+    mock_inspect_instance = MagicMock()
+    mock_inspect_instance.active.return_value = {}
+    mock_inspect.return_value = mock_inspect_instance
+
     res_v1 = await async_client.get("/api/v1/health")
     assert res_v1.status_code == 200
-    assert res_v1.json()["status"] == "ok"
+    
+    data = res_v1.json()
+    assert data["status"] == "degraded"
+    assert data["components"]["mongo"] == "healthy"
+    assert data["components"]["redis"] == "healthy"
+    assert data["components"]["celery"] == "degraded"
+    assert data["components"]["storage"] == "healthy"
 
 @pytest.mark.asyncio
 async def test_system_info_endpoint(async_client):

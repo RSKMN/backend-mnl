@@ -22,15 +22,20 @@ QuDrugForge relies on a strictly structured decoupled architecture:
 
 ```mermaid
 graph TD
-    Client[Next.js Frontend] <--> |HTTPS / WSS| Backend[QuDrugForge Backend<br>FastAPI App]
-    Backend <--> |PyMongo/Motor| DB[(MongoDB Database)]
-    Backend <--> |Storage Interface| FS[(Storage Provider)]
-    Backend <--> |HTTP/REST / Subprocess| Compute[q-ai-drug Compute Backend]
+    Frontend[Next.js Frontend] --> |HTTPS / WSS| FastAPI[FastAPI Backend]
+    FastAPI --> |Tasks| Redis[Redis Broker]
+    Redis --> |Queue| PipelineWorkers[Celery Pipeline Workers]
+    Redis --> |Queue| ImportWorkers[Celery Import Workers]
+    PipelineWorkers --> |Execution| Compute[q-ai-drug Compute Engine]
+    ImportWorkers --> |Storage| MongoDB[(MongoDB Database)]
+    ImportWorkers --> |File Copy| Storage[(Artifact Storage)]
+    FastAPI --> |Reads| MongoDB
+    FastAPI --> |Reads| Storage
 ```
 
 * **Application Backend** (This Repository): Houses user states, workspace parameters, metrics histories, file metadata catalogs, and acts as the gatekeeper.
 * **Compute Engine** (`q-ai-drug` - External): An autonomous scientific compute cluster running intensive simulation tasks. **The frontend never communicates directly with the compute engine.**
-* **Orchestrator Service**: Manages multi-stage background queues sequentially, transitioning through `queued` ➔ `running` ➔ `importing_results` ➔ `completed`/`failed` states non-blockingly using FastAPI background tasks.
+* **Orchestrator Service**: Manages multi-stage background queues sequentially, transitioning through `queued` ➔ `running` ➔ `importing_results` ➔ `completed`/`failed` states non-blockingly using Redis, Celery, Pipeline Workers, Import Workers, and Job Tracking.
 * **Structured Data** (MongoDB): Holds JSON-native schemas representing molecular properties, workspace metrics, and configuration profiles.
 * **Abstracted File Store**: Multi-cloud driver abstraction managing file binaries (`uploads`, `artifacts`, `reports`, `temp`) across local directories or enterprise cloud buckets (S3, Cloudflare R2, MinIO, Azure Blob).
 
@@ -132,7 +137,7 @@ uvicorn app.main:app --reload --port 8001
 
 ## 6. Phase 20 — Pipeline Orchestration
 
-Phase 20 integrates all classical, ML, quantum, simulation, and report steps into an automated, sequential pipeline managed dynamically using FastAPI background tasks.
+Phase 20 integrates all classical, ML, quantum, simulation, and report steps into an automated, sequential pipeline managed dynamically using Redis, Celery, Pipeline Workers, Import Workers, and Job Tracking.
 
 ### Orchestration Endpoints
 
@@ -163,3 +168,78 @@ Phase 20 integrates all classical, ML, quantum, simulation, and report steps int
 * **Execution Adapters**: Exponential client probes to `http://127.0.0.1:8000` with direct local subprocess fallback executing native shell command lines cleanly.
 * **Auto-Import Triggers**: Automatically executes `ArtifactImportService` upon stage completion to index files, update molecule parameters, and compile reports.
 * **Live Long-Polling & Stepper**: Exposes summary counts and stepper state arrays mapping backend tasks to active UI indicators.
+
+---
+
+## 7. Queue Startup Guide
+
+The platform relies on Redis and Celery to manage asynchronous pipeline execution and artifact ingestion.
+
+### Redis Startup
+Using Docker Compose is the recommended way to start Redis.
+```bash
+docker compose up -d redis
+```
+*(Ensure `REDIS_URL` in your `.env` points to `redis://localhost:6379/0`)*
+
+### Worker Startup
+Open separate terminal windows to launch the dedicated Celery workers:
+
+**1. Pipeline Worker:**
+```bash
+# Processes the 'pipeline' queue for scientific job execution
+celery -A app.core.celery_app worker -Q pipeline --loglevel=info -n worker_pipeline@%h
+```
+
+**2. Import Worker:**
+```bash
+# Processes the 'imports' queue for artifact file ingestion
+celery -A app.core.celery_app worker -Q imports --loglevel=info -n worker_imports@%h
+```
+
+---
+
+## 8. Local Development Guide
+
+To run the entire QuDrugForge platform locally for development:
+
+1. **Start MongoDB and Redis**:
+   ```bash
+   docker compose up -d mongodb redis
+   ```
+2. **Start the API Server**:
+   ```bash
+   uvicorn app.main:app --reload --port 8001
+   ```
+3. **Start the Celery Workers** (in separate terminals, see Section 7).
+4. **Start the Compute Engine** (`q-ai-drug-new` directory):
+   ```bash
+   # Refer to the compute engine documentation
+   python -m uvicorn q_ai_drug.service.api:app --host 127.0.0.1 --port 8000
+   ```
+5. **Start the Next.js Frontend**:
+   ```bash
+   cd frontend-mnl
+   npm run dev
+   ```
+
+---
+
+## 9. Deployment Guide
+
+For production environments, all services should be orchestrated using `docker-compose` or a Kubernetes helm chart.
+
+### Docker Compose Deployment
+A consolidated `docker-compose.yml` runs the full topology:
+
+```bash
+docker compose up --build -d
+```
+This single command spins up:
+- **FastAPI Application Server**
+- **MongoDB**
+- **Redis Broker**
+- **Celery Worker (Pipeline)**
+- **Celery Worker (Imports)**
+
+*Note: Ensure all `.env` credentials (`REDIS_URL`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `MONGODB_URL`) are properly configured before deploying.*
